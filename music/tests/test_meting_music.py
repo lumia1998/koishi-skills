@@ -67,6 +67,24 @@ def test_choose_best_asks_when_version_qualifier_is_missing():
     assert_true(result["ambiguous"], "missing requested version qualifier should ask user to choose")
 
 
+def test_choose_best_does_not_autoplay_top_result():
+    songs = [
+        {"id": 1, "name": "Faded", "artists": "Alan Walker", "albumName": "Faded", "duration": 212626},
+        {"id": 2, "name": "The Spectre", "artists": "Alan Walker", "albumName": "The Spectre", "duration": 193000},
+    ]
+    result = module.choose_best_from_results("Alan Walker song", songs)
+    assert_true(result["ambiguous"], "unclear queries should show choices instead of autoplaying the top result")
+
+
+def test_choose_best_asks_when_same_title_has_multiple_artists():
+    songs = [
+        {"id": 1, "name": "Hello", "artists": "Adele", "albumName": "25", "duration": 295000},
+        {"id": 2, "name": "Hello", "artists": "OMFG", "albumName": "Hello", "duration": 225000},
+    ]
+    result = module.choose_best_from_results("Hello", songs)
+    assert_true(result["ambiguous"], "same title by multiple artists should ask user to choose")
+
+
 def test_cli_has_new_commands():
     help_result = run_cli("--help")
     assert_true(help_result.returncode == 0, help_result.stderr)
@@ -105,6 +123,8 @@ def main():
         test_choose_best_prefers_original_over_remix,
         test_choose_best_respects_version_qualifier,
         test_choose_best_asks_when_version_qualifier_is_missing,
+        test_choose_best_does_not_autoplay_top_result,
+        test_choose_best_asks_when_same_title_has_multiple_artists,
         test_cli_has_new_commands,
         test_ensure_ffmpeg_downloads_when_path_missing,
     ]

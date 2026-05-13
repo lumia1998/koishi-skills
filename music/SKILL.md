@@ -82,7 +82,7 @@ Show at most 10 results:
 
 ### 3. Auto-play exact song requests or resolve selection
 
-Only auto-play when the request contains a concrete song title or title+artist, such as “我要听 Faded Alan Walker” or “播放 晴天”. Do not auto-play broad artist/style requests.
+Only auto-play when the request has exactly one safe match: an exact title match with no competing same-title results, or a title+artist match that preserves every requested qualifier. If the query only loosely matches the top result, or if the same title appears with multiple artists, show choices instead of playing the first result.
 
 If the request contains version/variant qualifiers such as `2.0`, `remix`, `live`, `DJ`, `伴奏`, or `cover`, do not drop those words during matching. The original song is not a high-confidence match for a qualified request unless the title itself includes the requested qualifier.
 
@@ -100,7 +100,8 @@ If the initial user message contains a specific song title, search first and the
 
 | Search result situation | Behavior |
 | --- | --- |
-| One high-confidence match: exact title match, or song title plus artist match, or one clear top title match that preserves every requested version/variant qualifier | Play it directly without asking another question |
+| One safe match: exact title match with no competing same-title result, or title plus artist match that preserves every requested version/variant qualifier | Play it directly without asking another question |
+| No exact/safe match, only a likely top search result | Show up to 10 candidates and ask the user to choose |
 | Multiple likely versions: original/live/remix/DJ/伴奏/cover, or several same-title songs | Show up to 10 candidates and ask the user to choose |
 | Query is only an artist or broad style, such as “alanwalker 的歌” | Show candidates and ask the user to choose, unless the user asked for random |
 | User says “随便/你选/随机” in the initial request | Search and pick one candidate, preferably not always index 0 |
@@ -186,7 +187,7 @@ Use `search` together with `format-list` for broad artist/style requests: keep t
 你想听哪首？可以回复序号、歌名，或者说“随便”。
 ```
 
-Use `play` only when the user gave a specific enough song request, or explicitly asked for random selection. If the result is ambiguous, it returns JSON with `ambiguous: true` and a `prompt` string; send only the prompt text to the user. If it is not ambiguous, it writes the MP3 file and returns the file path.
+Use `play` only when the user gave a specific enough song request, or explicitly asked for random selection. `play` will still return an `ambiguous: true` JSON response instead of writing a file when the search only has a loose top result, multiple same-title songs by different artists, or a requested qualifier is missing. Send only the `prompt` text to the user in that case. If it is not ambiguous, it writes the MP3 file and returns the file path.
 
 For ChatLuna/open-terminal style backends, set the command timeout to at least 120 seconds for `download` or `play`. The first run may need extra time to download ffmpeg, and normal song download + conversion can exceed 30 seconds. If the backend cannot change timeout, tell the user you are processing audio before running the command and tolerate a delayed file publish step instead of treating a 30-second timeout as failure when JSON output and the MP3 path are present.
 
@@ -218,5 +219,5 @@ python scripts/meting_music.py resolve 36990266 --api https://api.injahow.cn/met
 - Do not lose the search state before the user chooses; selection by number needs the previous result list.
 - Do not assume the user will only reply with a number; support song name and random choice.
 - Do not send arbitrary remote URLs as final output when the requirement is an MP3/audio file; download and convert first.
-- Do not drop version or variant qualifiers such as `2.0`, `remix`, `live`, `DJ`, `伴奏`, or `cover`; if the matched title lacks the qualifier, show choices instead of auto-playing.
+- Do not auto-play the default top search result; if there is no exact/safe match, show the candidate list and wait for selection.
 - Do not treat a 30-second open-terminal timeout as failure if the command output contains valid JSON with a generated MP3 path.

@@ -137,7 +137,7 @@ def choose_best_from_results(query: str, results: list[dict]):
     ranked = rank_results(query, results)
     normalized_query = normalize_text(query)
     exact = [song for song in ranked if normalize_text(song["name"]) == normalized_query]
-    if len(exact) == 1:
+    if len(exact) == 1 and not misses_query_version(query, exact[0]):
         return {"match": "exact", "ambiguous": False, "song": exact[0], "candidates": ranked}
 
     title_artist_contains = [
@@ -159,7 +159,7 @@ def choose_best_from_results(query: str, results: list[dict]):
     if version_tokens(query) and all(misses_query_version(query, song) for song in ranked):
         return {"match": "missing_version", "ambiguous": True, "song": None, "candidates": ranked[:10]}
 
-    return {"match": "top_result", "ambiguous": False, "song": ranked[0], "candidates": ranked}
+    return {"match": "no_confident_match", "ambiguous": True, "song": None, "candidates": ranked[:10]}
 
 
 def choose_best(query: str, limit: int):

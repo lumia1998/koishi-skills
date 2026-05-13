@@ -1,6 +1,6 @@
 ---
 name: javbus
-description: Use when a bot or assistant needs JavBus-style adult/NSFW movie metadata: 番号 lookup, actress/女优 search, title/keyword search, censored or uncensored/latest lists, random movie recommendations, random actress-style keyword recommendations, magnet links, cover URL, preview image URLs, or the jav-lumia1998s-projects.vercel.app API. Use only where adult content is allowed.
+description: "Use when a bot or assistant needs JavBus-style adult/NSFW movie metadata, 番号 lookup, actress/女优 search, title/keyword search, censored or uncensored latest lists, random movie recommendations, random actress recommendations, magnet links, cover URL, preview image URLs, or the jav-lumia1998s-projects.vercel.app API. Use only where adult content is allowed."
 ---
 
 # JavBus Metadata Bot

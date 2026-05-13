@@ -1,6 +1,6 @@
 ---
 name: music
-description: Use when a bot or assistant needs to satisfy music listening requests, song search, 点歌, 听歌, Meting API, NetEase music lookup, selecting a song from search results, downloading a song URL, converting audio with ffmpeg, or sending an mp3/audio file to a user.
+description: Use when a bot or assistant needs to satisfy music listening requests, song search, 点歌, 听歌, broad artist requests like “xxx 的歌”, Meting API, NetEase music lookup, selecting a song from search results, downloading a song URL, converting audio with ffmpeg, or sending an mp3/audio file to a user.
 ---
 
 # Music Bot via Meting API
@@ -45,8 +45,10 @@ Classify the user request before deciding whether to play directly or show choic
 | --- | --- | --- |
 | “我要听 Faded Alan Walker” | Specific song + artist | Search, choose high-confidence match, play directly |
 | “我要听 Faded” | Specific title | Play directly only if not ambiguous; otherwise show choices |
-| “我要听 alanwalker 的歌” | Broad artist request | Show up to 10 choices |
+| “我要听 alanwalker 的歌” | Broad artist request | Must show up to 10 choices and wait for user selection before resolving/downloading |
 | “随便来首 alanwalker” | Random request | Search and pick one result |
+
+Broad artist/style requests are not specific enough to auto-play. Phrases such as “xxx 的歌”, “xxx 歌手”, “来点 xxx”, or “我想听 xxx 的歌” should run `format-list`, send the list to the user, store the latest result state, and stop until the user replies with a number/name/random intent.
 
 ### 2. Search NetEase Music
 
@@ -80,7 +82,19 @@ Show at most 10 results:
 
 ### 3. Auto-play exact song requests or resolve selection
 
-If the initial user message contains a specific song title, such as “我要听 Faded” or “播放 晴天”, search first and then decide whether to ask for confirmation:
+Only auto-play when the request contains a concrete song title or title+artist, such as “我要听 Faded Alan Walker” or “播放 晴天”. Do not auto-play broad artist/style requests.
+
+For broad requests such as “我要听 alanwalker 的歌”, do this instead:
+
+1. Run `search "alanwalker" --limit 10` to get JSON candidates with numeric song IDs for internal state.
+2. Run `format-list "alanwalker" --limit 10` and send the returned plain text list to the user.
+3. Save the `search` JSON as the latest per-user/per-channel state so numbers and titles map back to song IDs.
+4. Wait for the user to reply with a number, title, or random intent.
+5. Only after the selection, call `download <songId> --out <file.mp3>` or resolve the chosen `id` and convert it.
+
+If the initial user message is broad and does not include “随便/你选/随机/都行”, asking the user to choose is the correct behavior even if the search result has a clear first item.
+
+If the initial user message contains a specific song title, search first and then decide whether to ask for confirmation:
 
 | Search result situation | Behavior |
 | --- | --- |
@@ -161,7 +175,7 @@ python scripts/meting_music.py play "Faded Alan Walker" --out song.mp3
 
 `resolve` only returns the playable direct URL and the Meting API that worked. Use `download` or `play` when the bot needs an actual MP3 file.
 
-Use `format-list` when the bot needs to show results to the user. It returns plain chat text, not JSON:
+Use `search` together with `format-list` for broad artist/style requests: keep the JSON from `search` internally for song IDs, send only the `format-list` text to the user, then stop and wait for selection. Do not immediately call `play` for “xxx 的歌” unless the user also says “随便/随机/你选”. It returns plain chat text, not JSON:
 
 ```text
 我搜到了这些和「alanwalker」相关的歌曲：
@@ -170,7 +184,9 @@ Use `format-list` when the bot needs to show results to the user. It returns pla
 你想听哪首？可以回复序号、歌名，或者说“随便”。
 ```
 
-Use `play` when the user gave a specific enough request. If the result is ambiguous, it returns JSON with `ambiguous: true` and a `prompt` string; send only the prompt text to the user. If it is not ambiguous, it writes the MP3 file and returns the file path.
+Use `play` only when the user gave a specific enough song request, or explicitly asked for random selection. If the result is ambiguous, it returns JSON with `ambiguous: true` and a `prompt` string; send only the prompt text to the user. If it is not ambiguous, it writes the MP3 file and returns the file path.
+
+For ChatLuna/open-terminal style backends, set the command timeout to at least 120 seconds for `download` or `play`. The first run may need extra time to download ffmpeg, and normal song download + conversion can exceed 30 seconds. If the backend cannot change timeout, tell the user you are processing audio before running the command and tolerate a delayed file publish step instead of treating a 30-second timeout as failure when JSON output and the MP3 path are present.
 
 `resolve`, `download`, and `play` use multiple preset Meting APIs as fallback. To override or add priority APIs:
 
@@ -200,5 +216,5 @@ python scripts/meting_music.py resolve 36990266 --api https://api.injahow.cn/met
 - Do not lose the search state before the user chooses; selection by number needs the previous result list.
 - Do not assume the user will only reply with a number; support song name and random choice.
 - Do not send arbitrary remote URLs as final output when the requirement is an MP3/audio file; download and convert first.
-- Do not send JSON directly to end users; only use JSON internally and send the human-readable prompt/list text.
-- Do not keep temp files after sending.
+- Do not use `play` for broad artist requests like “alanwalker 的歌”; show `format-list` first and wait for selection.
+- Do not treat a 30-second open-terminal timeout as failure if the command output contains valid JSON with a generated MP3 path.

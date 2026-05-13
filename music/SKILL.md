@@ -44,7 +44,7 @@ Classify the user request before deciding whether to play directly or show choic
 | User message | Mode | Bot behavior |
 | --- | --- | --- |
 | “我要听 Faded Alan Walker” | Specific song + artist | Search, choose high-confidence match, play directly |
-| “我要听 Faded” | Specific title | Play directly only if not ambiguous; otherwise show choices |
+| “我要听 The Spectre 2.0” | Specific title with version qualifier | Play only an exact/qualified match; otherwise show choices |
 | “我要听 alanwalker 的歌” | Broad artist request | Must show up to 10 choices and wait for user selection before resolving/downloading |
 | “随便来首 alanwalker” | Random request | Search and pick one result |
 
@@ -84,6 +84,8 @@ Show at most 10 results:
 
 Only auto-play when the request contains a concrete song title or title+artist, such as “我要听 Faded Alan Walker” or “播放 晴天”. Do not auto-play broad artist/style requests.
 
+If the request contains version/variant qualifiers such as `2.0`, `remix`, `live`, `DJ`, `伴奏`, or `cover`, do not drop those words during matching. The original song is not a high-confidence match for a qualified request unless the title itself includes the requested qualifier.
+
 For broad requests such as “我要听 alanwalker 的歌”, do this instead:
 
 1. Run `search "alanwalker" --limit 10` to get JSON candidates with numeric song IDs for internal state.
@@ -98,7 +100,7 @@ If the initial user message contains a specific song title, search first and the
 
 | Search result situation | Behavior |
 | --- | --- |
-| One high-confidence match: exact title match, or song title plus artist match, or one clear top title match | Play it directly without asking another question |
+| One high-confidence match: exact title match, or song title plus artist match, or one clear top title match that preserves every requested version/variant qualifier | Play it directly without asking another question |
 | Multiple likely versions: original/live/remix/DJ/伴奏/cover, or several same-title songs | Show up to 10 candidates and ask the user to choose |
 | Query is only an artist or broad style, such as “alanwalker 的歌” | Show candidates and ask the user to choose, unless the user asked for random |
 | User says “随便/你选/随机” in the initial request | Search and pick one candidate, preferably not always index 0 |
@@ -216,5 +218,5 @@ python scripts/meting_music.py resolve 36990266 --api https://api.injahow.cn/met
 - Do not lose the search state before the user chooses; selection by number needs the previous result list.
 - Do not assume the user will only reply with a number; support song name and random choice.
 - Do not send arbitrary remote URLs as final output when the requirement is an MP3/audio file; download and convert first.
-- Do not use `play` for broad artist requests like “alanwalker 的歌”; show `format-list` first and wait for selection.
+- Do not drop version or variant qualifiers such as `2.0`, `remix`, `live`, `DJ`, `伴奏`, or `cover`; if the matched title lacks the qualifier, show choices instead of auto-playing.
 - Do not treat a 30-second open-terminal timeout as failure if the command output contains valid JSON with a generated MP3 path.

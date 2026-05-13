@@ -49,6 +49,24 @@ def test_choose_best_prefers_original_over_remix():
     assert_true(result["song"]["id"] == 2, "title+artist should prefer original exact title over remix")
 
 
+def test_choose_best_respects_version_qualifier():
+    songs = [
+        {"id": 1, "name": "The Spectre", "artists": "Alan Walker", "albumName": "The Spectre", "duration": 193000},
+        {"id": 2, "name": "The Spectre 2.0", "artists": "Alan Walker", "albumName": "The Spectre 2.0", "duration": 205000},
+    ]
+    result = module.choose_best_from_results("The Spectre 2.0 Alan Walker", songs)
+    assert_true(result["song"]["id"] == 2, "version qualifiers like 2.0 should not be dropped")
+
+
+def test_choose_best_asks_when_version_qualifier_is_missing():
+    songs = [
+        {"id": 1, "name": "The Spectre", "artists": "Alan Walker", "albumName": "The Spectre", "duration": 193000},
+        {"id": 2, "name": "The Spectre (Sped up Remix)", "artists": "Alan Walker", "albumName": "The Spectre Remixes", "duration": 176000},
+    ]
+    result = module.choose_best_from_results("The Spectre 2.0 Alan Walker", songs)
+    assert_true(result["ambiguous"], "missing requested version qualifier should ask user to choose")
+
+
 def test_cli_has_new_commands():
     help_result = run_cli("--help")
     assert_true(help_result.returncode == 0, help_result.stderr)
@@ -85,6 +103,8 @@ def main():
     tests = [
         test_format_list_text,
         test_choose_best_prefers_original_over_remix,
+        test_choose_best_respects_version_qualifier,
+        test_choose_best_asks_when_version_qualifier_is_missing,
         test_cli_has_new_commands,
         test_ensure_ffmpeg_downloads_when_path_missing,
     ]

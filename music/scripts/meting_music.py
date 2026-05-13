@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -33,6 +34,7 @@ FFMPEG_DOWNLOADS = {
 PENALTY_WORDS = ["remix", "instrumental", "live", "cover", "伴奏", "dj", "slowed", "piano"]
 RANDOM_WORDS = ["随便", "你选", "随机", "都行", "任选"]
 BROAD_HINTS = ["的歌", "歌手", "来首", "随便"]
+VERSION_PATTERN = re.compile(r"\b\d+(?:\.\d+)+\b")
 
 
 def request_text(url: str, timeout: int = 15) -> str:
@@ -84,6 +86,18 @@ def normalize_text(value: str) -> str:
     return "".join(value.lower().split())
 
 
+def version_tokens(value: str) -> set[str]:
+    return set(VERSION_PATTERN.findall(value.lower()))
+
+
+def misses_query_version(query: str, song: dict) -> bool:
+    query_versions = version_tokens(query)
+    if not query_versions:
+        return False
+    title_versions = version_tokens(song["name"])
+    return not query_versions.issubset(title_versions)
+
+
 def detect_request_mode(user_text: str, query: str) -> str:
     normalized_text = normalize_text(user_text)
     if any(word in user_text for word in RANDOM_WORDS):
@@ -107,8 +121,8 @@ def score_song(query: str, song: dict) -> int:
     first_artist = artists.split("/")[0] if artists else ""
     if first_artist and first_artist in normalized_query:
         score += 50
-    lowered_name = song["name"].lower()
-    score -= sum(25 for word in PENALTY_WORDS if word in lowered_name)
+    if misses_query_version(query, song):
+        score -= 200
     return score
 
 
@@ -130,16 +144,20 @@ def choose_best_from_results(query: str, results: list[dict]):
         song for song in ranked
         if normalize_text(song["name"]) in normalized_query
         and normalize_text(song["artists"]).split("/")[0] in normalized_query
+        and not misses_query_version(query, song)
     ]
     if title_artist_contains:
         return {"match": "title_artist", "ambiguous": False, "song": title_artist_contains[0], "candidates": ranked}
 
-    title_contains = [song for song in ranked if normalized_query in normalize_text(song["name"])]
+    title_contains = [song for song in ranked if normalized_query in normalize_text(song["name"]) and not misses_query_version(query, song)]
     if len(title_contains) == 1:
         return {"match": "title_contains", "ambiguous": False, "song": title_contains[0], "candidates": ranked}
 
     if exact or title_contains:
         return {"match": "ambiguous", "ambiguous": True, "song": None, "candidates": (exact or title_contains)[:10]}
+
+    if version_tokens(query) and all(misses_query_version(query, song) for song in ranked):
+        return {"match": "missing_version", "ambiguous": True, "song": None, "candidates": ranked[:10]}
 
     return {"match": "top_result", "ambiguous": False, "song": ranked[0], "candidates": ranked}
 

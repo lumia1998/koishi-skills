@@ -1,3 +1,7 @@
 music/.cache/
 **/__pycache__/
 *.mp3
+pica/.cache/
+pica/downloads/
+pica/config.local.json
+*.zip

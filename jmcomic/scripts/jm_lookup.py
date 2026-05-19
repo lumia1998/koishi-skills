@@ -152,18 +152,7 @@ def ensure_service(base: str, project_dir: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _find_gs() -> str | None:
-    for name in ("gs", "gswin64c", "gswin32c"):
-        found = shutil.which(name)
-        if found:
-            return found
-    # common Windows install path
-    for pat in [r"C:\Program Files\gs\gs*\bin\gswin64c.exe",
-                r"C:\Program Files (x86)\gs\gs*\bin\gswin32c.exe"]:
-        import glob
-        matches = sorted(glob.glob(pat))
-        if matches:
-            return matches[-1]
-    return None
+    return shutil.which("gs")
 
 
 def compress_pdf(pdf_path: Path, threshold_mb: int = COMPRESS_THRESHOLD_MB) -> Path:

@@ -27,8 +27,8 @@ description: Use when a bot or assistant needs JMComic/禁漫天堂 comic search
 ```json
 {
   "api_base": "http://127.0.0.1:8699",
-  "project_dir": "D:/lumia/Desktop/claude_workspace/JMComic-Api",
-  "out": "D:/lumia/Desktop/claude_workspace/koishi-skills/jmcomic/downloads",
+  "project_dir": "/path/to/JMComic-Api",
+  "out": "/path/to/koishi-skills/jmcomic/downloads",
   "random_keywords": "全彩,短篇,同人,校园,恋爱"
 }
 ```

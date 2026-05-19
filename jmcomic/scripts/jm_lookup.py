@@ -27,6 +27,7 @@ DEFAULT_PROJECT_DIR = str(Path(__file__).resolve().parents[3] / "JMComic-Api")
 DEFAULT_OUT_DIR = str(Path(__file__).resolve().parents[1] / "downloads")
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.local.json"
 COMPRESS_THRESHOLD_MB = 100
+JMCOMIC_API_REPO = "https://github.com/FfmpegZZZ/JMComic-Api.git"
 
 
 def load_local_config(path: str | Path | None = None) -> dict[str, Any]:
@@ -105,8 +106,15 @@ def _venv_ready(project_dir: str) -> bool:
 
 def start_service(project_dir: str, base: str) -> None:
     pd = Path(project_dir)
+
+    git = shutil.which("git")
     if not pd.exists():
-        raise RuntimeError(f"JMComic-Api not found at {project_dir}")
+        if git is None:
+            raise RuntimeError("git is not installed — cannot auto-deploy JMComic-Api")
+        print(f"[jm] Cloning FfmpegZZZ/JMComic-Api into {project_dir} ...", flush=True)
+        pd.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run([git, "clone", JMCOMIC_API_REPO, str(pd)], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     uv = shutil.which("uv")
     if uv is None:
@@ -240,8 +248,9 @@ def cmd_doctor(args: argparse.Namespace, local: dict) -> None:
     lines = [
         f"API base:      {base}",
         f"Service:       {'running ✓' if is_service_running(base) else 'not running ✗'}",
+        f"git:           {'found ✓' if shutil.which('git') else 'not found ✗'}",
         f"uv:            {'found ✓' if shutil.which('uv') else 'not found ✗'}",
-        f"Project dir:   {project_dir} ({'exists ✓' if pd.exists() else 'not found ✗'})",
+        f"Project dir:   {project_dir} ({'exists ✓' if pd.exists() else 'not found (will auto-clone)'})",
         f"Venv ready:    {'yes ✓' if _venv_ready(project_dir) else 'no (first run will install)'}",
         f"Ghostscript:   {gs + ' ✓' if gs else 'not found (compression disabled)'}",
     ]

@@ -130,8 +130,9 @@ python scripts/jm_lookup.py random --out ./downloads
 
 | 错误 | 回复 |
 |---|---|
+| git 未安装且项目目录不存在 | `需要先安装 git` |
 | uv 未安装 | `需要先安装 uv` |
-| 项目目录不存在 | `找不到 JMComic-Api 项目目录，请检查 project_dir 配置` |
+| 项目目录不存在 | 自动 `git clone FfmpegZZZ/JMComic-Api` 后继续 |
 | 服务 30s 内未启动 | `服务启动超时，请检查日志` |
 | 专辑不存在 (404) | `没找到这个 JM 号，可能已下架或号码有误` |
 | 下载超时 | `下载超时，稍后重试` |

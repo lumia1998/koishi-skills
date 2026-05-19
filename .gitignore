@@ -4,4 +4,6 @@ music/.cache/
 pica/.cache/
 pica/downloads/
 pica/config.local.json
+jmcomic/config.local.json
+jmcomic/downloads/
 *.zip

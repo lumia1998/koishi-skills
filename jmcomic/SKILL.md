@@ -1,15 +1,15 @@
 ---
 name: jmcomic
-description: Use when a user requests JMComic/禁漫天堂 comics by ID or keyword, including jmxxxxx, JMxxxxx, jm号, 禁漫, 禁漫本子, 我要看本子, 我要看jm, 我要看禁漫, 搜xxx本子, 给我jm, 下载jm, 来个禁漫, 随便来个本子, or any request to search or download a comic from JMComic and receive a password-protected ZIP file.
+description: Use when a bot or assistant needs JMComic/禁漫天堂 comic search or encrypted ZIP downloads, including jmxxxxx, JMxxxxx, jm号, 禁漫, 禁漫本子, 我要看本子, 我要看jm, 我要看禁漫, 搜xxx本子, 给我jm, 下载jm, 来个禁漫, 随便来个本子, or any request to search or download a comic from JMComic and receive a password-protected ZIP file.
 ---
 
 # JMComic ZIP Bot
 
 ## Overview
 
-搜索和下载 JMComic/禁漫天堂 专辑，打包成带随机密码的 ZIP 文件发送给用户。
+Use this skill for conversational JMComic/禁漫天堂 搜索和下载。搜索阶段只给用户纯文本候选；下载阶段打包成带随机密码的 ZIP 文件发送。
 
-不要返回图片 URL、页面链接、PDF 链接。只发送 ZIP 文件和解压密码。
+不要返回图片 URL、页面 URL、封面 URL，也不要逐张发送图片。
 
 ## Configuration
 
@@ -45,21 +45,25 @@ description: Use when a user requests JMComic/禁漫天堂 comics by ID or keywo
 
 ## Conversation Flow
 
-### 1. 随机模式（casual 无关键词请求）
+### 1. 随机 casual 请求
 
-"随便来个本子"、"给我整个本子看"等不含关键词时，不要询问，直接运行：
+"随便来个本子"、"给我整个本子看"、"来个本子"等不含具体关键词时，不要询问，直接：
 
 ```bash
-python scripts/jm_lookup.py random
+python scripts/jm_lookup.py random --out ./downloads
 ```
+
+脚本从 `random_keywords` 配置池随机挑词搜索，未配置则从日榜随机选一本，生成加密 ZIP。发送 ZIP 并告知解压密码。
 
 ### 2. 直接给 JM 号
 
-用户给出 JM 号（如 `jm12345`、`JM12345`、`12345`）时，直接运行：
+用户给出 JM 号（如 `jm12345`、`JM12345`、`12345`）时，直接：
 
 ```bash
-python scripts/jm_lookup.py zip 12345
+python scripts/jm_lookup.py zip 12345 --out ./downloads
 ```
+
+发送生成的 ZIP 文件，并告知解压密码。
 
 ### 3. 关键词搜索
 
@@ -68,34 +72,49 @@ python scripts/jm_lookup.py search "关键词" --limit 10
 python scripts/jm_lookup.py search "关键词" --limit 10 --json
 ```
 
-把纯文本列表发给用户，内部保留 JSON，等用户回复序号后取对应 ID 下载。序号必须在 1-N 范围内，超出则提示重新选。
+只把纯文本列表发给用户，内部保留 JSON 以便序号映射到 ID。
+
+示例用户侧输出：
+
+```text
+找到 8 个和「keyword」相关的结果：
+
+1. [12345] 某本子标题
+2. [67890] 另一本标题
+...
+
+你要哪一本？可以回复 1-8 的序号或 JM 号。
+```
 
 ### 4. 用户选定后下载
 
 ```bash
-python scripts/jm_lookup.py zip <album_id>
+python scripts/jm_lookup.py zip <album_id> --out ./downloads
 ```
 
-## 处理下载输出
+发送生成的 ZIP 文件，并告知解压密码。
 
-`zip` 和 `random` 命令成功后 stdout 输出：
-
-```
-zip_path=/absolute/path/to/[12345] title_1234567890.zip
-zip_password=Xy7kQ2mR9n4L
-album_id=12345
-filename=[12345] title_1234567890.zip
-```
-
-取 `zip_path=` 后面的路径，发送该文件给用户，并告知 `zip_password=` 的值作为解压密码。
-
-## Service Auto-Deploy
-
-脚本自动检测后端，未运行时自动安装依赖并启动，等待最多 30 秒。
+## Reusable Helper Script
 
 ```bash
 python scripts/jm_lookup.py doctor
+python scripts/jm_lookup.py search "关键词" --limit 10
+python scripts/jm_lookup.py search "关键词" --limit 10 --json
+python scripts/jm_lookup.py zip 12345 --out ./downloads
+python scripts/jm_lookup.py random --out ./downloads
 ```
+
+`doctor` 检查服务状态、uv 是否安装、项目目录是否存在，不打印密码。
+
+## Output Rules
+
+- 搜索结果发纯文本列表。
+- 不要返回图片 URL。
+- 不要返回页面 URL。
+- 不要直接发送 JSON 给用户。
+- 下载结果只发送带随机密码的 ZIP 文件。
+- 发送 ZIP 时明确告诉用户解压密码。
+- ZIP 加密由 helper 脚本内置实现，不需要额外 pip 依赖。
 
 ## Error Handling
 

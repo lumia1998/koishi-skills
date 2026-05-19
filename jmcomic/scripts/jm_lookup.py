@@ -228,7 +228,7 @@ def start_service(project_dir: str, base: str) -> None:
     # Ensure venv + deps
     print(f"[jm] Installing dependencies in {project_dir} ...", flush=True)
     subprocess.run(
-        [uv, "pip", "install", "-e", ".[dev]"],
+        [uv, "pip", "install", "-e", "."],
         cwd=project_dir,
         check=True,
         stdout=subprocess.DEVNULL,
@@ -364,7 +364,7 @@ def cmd_search(args: argparse.Namespace, local: dict) -> None:
     lines = [f"找到 {len(results)} 个结果：\n"]
     for i, item in enumerate(results, 1):
         lines.append(f"{i}. [{item['id']}] {item['title']}")
-    lines.append("\n你要哪一本？可以回复序号或 JM 号。")
+    lines.append(f"\n你要哪一本？回复 1-{len(results)} 的序号或直接回复 JM 号。")
     print("\n".join(lines))
 
 

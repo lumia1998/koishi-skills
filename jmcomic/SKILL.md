@@ -7,9 +7,9 @@ description: Use when a user requests JMComic/禁漫天堂 comics by ID or keywo
 
 ## Overview
 
-Use this skill for JMComic/禁漫天堂搜索和下载。  
-后端自动检测服务状态并按需启动，下载专辑并打包成带随机密码的 ZIP 文件。  
-不要返回图片 URL，只发 ZIP 文件和解压密码。
+This skill runs on **OpenTerminal** — you execute shell commands and send the resulting local file back to the user via Koishi/ChatLuna.
+
+**CRITICAL**: The script outputs a local file path (`zip_path=...`). You MUST send that local file using OpenTerminal's file-sending capability. Do NOT invent download links, do NOT use file.io or any upload service, do NOT paste the path as text. The file already exists on disk — just send it.
 
 ## Configuration
 
@@ -32,8 +32,6 @@ Use this skill for JMComic/禁漫天堂搜索和下载。
   "random_keywords": "全彩,短篇,同人,校园,恋爱"
 }
 ```
-
-**默认值**：api_base = `http://127.0.0.1:8699`，project_dir 指向工作区中的 `JMComic-Api`，out 指向 skill 目录下的 `downloads/`。
 
 ## When to Use
 
@@ -66,36 +64,16 @@ python scripts/jm_lookup.py random
 python scripts/jm_lookup.py zip 12345
 ```
 
-脚本输出格式（逐行）：
-```
-zip_path=/absolute/path/to/file.zip
-zip_password=Xy7kQ2mR9n4L
-album_id=12345
-filename=[12345] title.zip
-```
-
-解析以上输出后，发送 ZIP 文件并告诉用户解压密码。
-
 ### 3. 关键词搜索 → 列出结果让用户选
 
-调用：
 ```bash
 python scripts/jm_lookup.py search "关键词" --limit 10
 python scripts/jm_lookup.py search "关键词" --limit 10 --json
 ```
 
-发纯文本列表给用户，内部保留 JSON 以便后续步骤用序号或 ID 对应。
+把纯文本列表发给用户，**内部记住 JSON 数据**，等用户回复序号后用对应 ID 下载。
 
-示例用户侧输出：
-```
-找到 8 个和「keyword」相关的结果：
-
-1. [12345] 某本子标题
-2. [67890] 另一本标题
-...
-
-你要哪一本？回复序号或 JM 号。
-```
+**序号必须在列表范围内。** 脚本输出"找到 N 个结果"，用户只能选 1-N，超出范围要提示重新选。
 
 ### 4. 用户选定后 → 下载打包
 
@@ -103,15 +81,29 @@ python scripts/jm_lookup.py search "关键词" --limit 10 --json
 python scripts/jm_lookup.py zip <album_id>
 ```
 
-发送 ZIP 文件并告知密码。
+## 解析脚本输出并发送文件
+
+脚本 stdout 包含以下几行（`zip` 和 `random` 命令共用）：
+
+```
+zip_path=/absolute/path/to/[12345] title_1234567890.zip
+zip_password=Xy7kQ2mR9n4L
+album_id=12345
+filename=[12345] title_1234567890.zip
+```
+
+**处理步骤（严格按此执行）**：
+
+1. 从 stdout 提取 `zip_path=` 后面的完整绝对路径
+2. 用 OpenTerminal 把该路径的文件发送给用户
+3. 同时告诉用户解压密码（`zip_password=` 的值）
+4. **不要上传到任何第三方服务**，不要生成下载链接，文件就在本地磁盘
 
 ## Service Auto-Deploy
 
 脚本会自动检测后端是否运行：
-- 运行中 → 直接使用
-- 未运行 → 自动 `uv pip install` + 后台启动 uvicorn，等待最多 30 秒
-
-若 `uv` 未安装或 `JMComic-Api` 项目目录不存在，脚本会明确报错。
+- 运行中 → 直接调用
+- 未运行 → 自动安装依赖并后台启动 uvicorn，等待最多 30 秒
 
 诊断命令：
 ```bash
@@ -120,19 +112,19 @@ python scripts/jm_lookup.py doctor
 
 ## Output Rules
 
-- 搜索结果只发纯文本，不发 URL
-- 下载结果只发带随机密码的 ZIP 文件
-- 每次下载密码不同（随机生成），发送时明确告知用户
-- 不要发裸图、页面链接、PDF 链接
-- 不要把 config.local.json 中的配置内容打印给用户
+- 搜索结果只发纯文本列表，不发 URL
+- 下载结果：用 OpenTerminal 发本地 ZIP 文件 + 告诉用户解压密码
+- 绝对不要发裸图、页面链接、PDF 链接、上传链接
+- 不要把配置文件内容打印给用户
 
 ## Error Handling
 
 | 错误 | 回复 |
 |---|---|
-| uv 未安装 | `需要先安装 uv，参考 https://github.com/astral-sh/uv` |
-| JMComic-Api 项目目录不存在 | `找不到 JMComic-Api 项目目录，请检查 project_dir 配置` |
-| 服务 30s 内未启动 | `服务启动超时，请检查 JMComic-Api 日志` |
-| 专辑不存在 | `没找到这个 JM 号，可能已下架或号码有误` |
-| 下载超时 | `下载超时，稍后重试或换一个专辑` |
+| uv 未安装 | `需要先安装 uv` |
+| 项目目录不存在 | `找不到 JMComic-Api 项目目录，请检查 project_dir 配置` |
+| 服务 30s 内未启动 | `服务启动超时，请检查日志` |
+| 专辑不存在 (404) | `没找到这个 JM 号，可能已下架或号码有误` |
+| 下载超时 | `下载超时，稍后重试` |
 | 搜索无结果 | `没找到相关结果，换个关键词试试？` |
+| 用户选的序号超出范围 | `只找到 N 个结果，请回复 1-N 的序号` |

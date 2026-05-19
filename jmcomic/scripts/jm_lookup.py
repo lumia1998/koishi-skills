@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""JMComic-Api helper — auto-deploy, search, download, zip."""
+"""JMComic-Api helper — auto-deploy, search, download encrypted PDF."""
 
 from __future__ import annotations
 
@@ -9,16 +9,12 @@ import os
 import platform
 import random
 import re
-import secrets
 import shutil
-import string
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.error
 import urllib.request
-import zlib
 from pathlib import Path
 from typing import Any
 
@@ -30,8 +26,7 @@ DEFAULT_API_BASE = "http://127.0.0.1:8699"
 DEFAULT_PROJECT_DIR = str(Path(__file__).resolve().parents[3] / "JMComic-Api")
 DEFAULT_OUT_DIR = str(Path(__file__).resolve().parents[1] / "downloads")
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.local.json"
-
-CRC_TABLE: list[int] | None = None
+COMPRESS_THRESHOLD_MB = 100
 
 
 def load_local_config(path: str | Path | None = None) -> dict[str, Any]:
@@ -55,135 +50,6 @@ def config_value(args: argparse.Namespace, local: dict, attr: str, env: str, def
     if v:
         return v
     return local.get(attr, default)
-
-
-# ---------------------------------------------------------------------------
-# Encrypted ZIP (stdlib-only, same algorithm as pica skill)
-# ---------------------------------------------------------------------------
-
-def _crc_table() -> list[int]:
-    global CRC_TABLE
-    if CRC_TABLE is None:
-        table = []
-        for v in range(256):
-            crc = v
-            for _ in range(8):
-                crc = ((crc >> 1) ^ 0xEDB88320) if (crc & 1) else (crc >> 1)
-            table.append(crc & 0xFFFFFFFF)
-        CRC_TABLE = table
-    return CRC_TABLE
-
-
-def _crc32b(val: int, byte: int) -> int:
-    t = _crc_table()
-    return ((val >> 8) ^ t[(val ^ byte) & 0xFF]) & 0xFFFFFFFF
-
-
-def _zip_keys(password: bytes) -> list[int]:
-    keys = [0x12345678, 0x23456789, 0x34567890]
-    for b in password:
-        _update_keys(keys, b)
-    return keys
-
-
-def _update_keys(keys: list[int], b: int) -> None:
-    keys[0] = _crc32b(keys[0], b)
-    keys[1] = (keys[1] + (keys[0] & 0xFF)) & 0xFFFFFFFF
-    keys[1] = (keys[1] * 134775813 + 1) & 0xFFFFFFFF
-    keys[2] = _crc32b(keys[2], (keys[1] >> 24) & 0xFF)
-
-
-def _xbyte(keys: list[int], b: int) -> int:
-    t = (keys[2] | 2) & 0xFFFFFFFF
-    out = b ^ (((t * (t ^ 1)) >> 8) & 0xFF)
-    _update_keys(keys, b)
-    return out
-
-
-def _encrypt(data: bytes, password: bytes, crc: int) -> bytes:
-    keys = _zip_keys(password)
-    hdr = bytearray([0] * 11 + [(crc >> 24) & 0xFF])
-    out = bytearray()
-    for b in hdr:
-        out.append(_xbyte(keys, b))
-    for b in data:
-        out.append(_xbyte(keys, b))
-    return bytes(out)
-
-
-def _dos_dt(ts: float | None = None) -> tuple[int, int]:
-    lt = time.localtime(ts or time.time())
-    return (
-        (lt.tm_hour << 11) | (lt.tm_min << 5) | (lt.tm_sec // 2),
-        ((lt.tm_year - 1980) << 9) | (lt.tm_mon << 5) | lt.tm_mday,
-    )
-
-
-def _make_record(name: str, data: bytes, pw: str, offset: int) -> tuple[bytes, bytes]:
-    nb = name.encode("utf-8")
-    crc = zlib.crc32(data) & 0xFFFFFFFF
-    co = zlib.compressobj(level=6, method=zlib.DEFLATED, wbits=-15)
-    compressed = co.compress(data) + co.flush()
-    enc = _encrypt(compressed, pw.encode(), crc)
-    t, d = _dos_dt()
-    lh = (
-        b"PK\x03\x04"
-        + (20).to_bytes(2, "little")
-        + (0x1 | 0x800).to_bytes(2, "little")
-        + (8).to_bytes(2, "little")
-        + t.to_bytes(2, "little")
-        + d.to_bytes(2, "little")
-        + crc.to_bytes(4, "little")
-        + len(enc).to_bytes(4, "little")
-        + len(data).to_bytes(4, "little")
-        + len(nb).to_bytes(2, "little")
-        + (0).to_bytes(2, "little")
-        + nb
-    )
-    ch = (
-        b"PK\x01\x02"
-        + (20).to_bytes(2, "little") * 2
-        + (0x1 | 0x800).to_bytes(2, "little")
-        + (8).to_bytes(2, "little")
-        + t.to_bytes(2, "little")
-        + d.to_bytes(2, "little")
-        + crc.to_bytes(4, "little")
-        + len(enc).to_bytes(4, "little")
-        + len(data).to_bytes(4, "little")
-        + len(nb).to_bytes(2, "little")
-        + (0).to_bytes(2, "little") * 4
-        + offset.to_bytes(4, "little")
-        + nb
-    )
-    return lh + enc, ch
-
-
-def create_encrypted_zip(files: list[Path], out: Path, password: str) -> Path:
-    out.parent.mkdir(parents=True, exist_ok=True)
-    records: list[bytes] = []
-    centrals: list[bytes] = []
-    offset = 0
-    for f in sorted(files, key=lambda p: p.name):
-        rec, cen = _make_record(f.name, f.read_bytes(), password, offset)
-        records.append(rec)
-        centrals.append(cen)
-        offset += len(rec)
-    cd = b"".join(centrals)
-    eocd = (
-        b"PK\x05\x06"
-        + (0).to_bytes(2, "little") * 2
-        + len(records).to_bytes(2, "little") * 2
-        + len(cd).to_bytes(4, "little")
-        + offset.to_bytes(4, "little")
-        + (0).to_bytes(2, "little")
-    )
-    out.write_bytes(b"".join(records) + cd + eocd)
-    return out
-
-
-def random_password(length: int = 12) -> str:
-    alphabet = string.ascii_letters + string.digits
-    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 # ---------------------------------------------------------------------------
@@ -215,58 +81,125 @@ def _find_uv() -> str | None:
     return shutil.which("uv")
 
 
+def _venv_ready(project_dir: str) -> bool:
+    """True if the project venv exists and has uvicorn installed."""
+    pd = Path(project_dir)
+    # uv creates .venv by default
+    uvicorn = pd / ".venv" / ("Scripts" if platform.system() == "Windows" else "bin") / (
+        "uvicorn.exe" if platform.system() == "Windows" else "uvicorn"
+    )
+    return uvicorn.exists()
+
+
 def start_service(project_dir: str, base: str) -> None:
-    """Start uvicorn in background, wait up to 30 s."""
     pd = Path(project_dir)
     if not pd.exists():
         raise RuntimeError(f"JMComic-Api project not found at {project_dir}")
 
     uv = _find_uv()
     if uv is None:
-        raise RuntimeError("uv is not installed — install from https://github.com/astral-sh/uv")
+        raise RuntimeError("uv is not installed — see https://github.com/astral-sh/uv")
 
-    # Ensure venv + deps
-    print(f"[jm] Installing dependencies in {project_dir} ...", flush=True)
-    subprocess.run(
-        [uv, "pip", "install", "-e", "."],
-        cwd=project_dir,
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    # Only install if venv isn't ready yet (first-time setup only)
+    if not _venv_ready(project_dir):
+        print("[jm] First-time setup: installing dependencies ...", flush=True)
+        subprocess.run(
+            [uv, "sync", "--no-dev"],
+            cwd=project_dir,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        print("[jm] Venv ready, skipping install.", flush=True)
 
     port_match = re.search(r":(\d+)$", base)
     port = port_match.group(1) if port_match else "8699"
 
-    kwargs: dict = dict(
-        cwd=project_dir,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    # Launch uvicorn directly from the venv — avoids uv run overhead
+    venv_bin = pd / ".venv" / ("Scripts" if platform.system() == "Windows" else "bin")
+    uvicorn_exe = venv_bin / ("uvicorn.exe" if platform.system() == "Windows" else "uvicorn")
+
+    kwargs: dict = dict(cwd=project_dir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if platform.system() == "Windows":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
     else:
         kwargs["start_new_session"] = True
 
     subprocess.Popen(
-        [uv, "run", "uvicorn", "jmcomic_api.app:app", "--host", "0.0.0.0", "--port", port],
+        [str(uvicorn_exe), "jmcomic_api.app:app", "--host", "0.0.0.0", "--port", port],
         **kwargs,
     )
 
-    print("[jm] Waiting for service to start ...", flush=True)
+    print("[jm] Waiting for service ...", flush=True)
     for _ in range(30):
         time.sleep(1)
         if is_service_running(base):
             print("[jm] Service is up.", flush=True)
             return
-    raise RuntimeError("Service did not start within 30 seconds — check JMComic-Api logs.")
+    raise RuntimeError("Service did not start within 30 s — check JMComic-Api logs.")
 
 
 def ensure_service(base: str, project_dir: str) -> None:
     if is_service_running(base):
         return
-    print(f"[jm] Service not running at {base}, auto-deploying ...", flush=True)
+    print(f"[jm] Service not running, starting ...", flush=True)
     start_service(project_dir, base)
+
+
+# ---------------------------------------------------------------------------
+# Ghostscript compression
+# ---------------------------------------------------------------------------
+
+def _find_gs() -> str | None:
+    for name in ("gs", "gswin64c", "gswin32c"):
+        found = shutil.which(name)
+        if found:
+            return found
+    # common Windows install path
+    for pat in [r"C:\Program Files\gs\gs*\bin\gswin64c.exe",
+                r"C:\Program Files (x86)\gs\gs*\bin\gswin32c.exe"]:
+        import glob
+        matches = sorted(glob.glob(pat))
+        if matches:
+            return matches[-1]
+    return None
+
+
+def compress_pdf(pdf_path: Path, threshold_mb: int = COMPRESS_THRESHOLD_MB) -> Path:
+    """Compress with Ghostscript if file exceeds threshold. Returns path (may be same file)."""
+    size_mb = pdf_path.stat().st_size / (1024 * 1024)
+    if size_mb <= threshold_mb:
+        return pdf_path
+
+    gs = _find_gs()
+    if not gs:
+        print(f"[jm] File is {size_mb:.1f} MB but Ghostscript not found, skipping compression.", flush=True)
+        return pdf_path
+
+    print(f"[jm] Compressing {size_mb:.1f} MB PDF with Ghostscript ...", flush=True)
+    out = pdf_path.with_suffix(".compressed.pdf")
+    result = subprocess.run(
+        [
+            gs, "-q", "-dNOPAUSE", "-dBATCH",
+            "-sDEVICE=pdfwrite",
+            "-dPDFSETTINGS=/ebook",   # ~150 DPI, good quality/size balance
+            "-dCompatibilityLevel=1.4",
+            f"-sOutputFile={out}",
+            str(pdf_path),
+        ],
+        capture_output=True,
+    )
+    if result.returncode != 0 or not out.exists() or out.stat().st_size == 0:
+        print("[jm] Ghostscript compression failed, using original.", flush=True)
+        out.unlink(missing_ok=True)
+        return pdf_path
+
+    new_mb = out.stat().st_size / (1024 * 1024)
+    print(f"[jm] Compressed: {size_mb:.1f} MB → {new_mb:.1f} MB", flush=True)
+    pdf_path.unlink()
+    out.rename(pdf_path)
+    return pdf_path
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +211,7 @@ def search(base: str, query: str, page: int = 1) -> list[dict]:
     r = _get(url)
     if not r.get("success"):
         raise RuntimeError(r.get("message", "search failed"))
-    return r["data"]["results"]  # list of {id, title}
+    return r["data"]["results"]
 
 
 def categories(base: str, order_by: str = "day_rank", page: int = 1) -> list[dict]:
@@ -289,33 +222,23 @@ def categories(base: str, order_by: str = "day_rank", page: int = 1) -> list[dic
     return r["data"]["results"]
 
 
-def random_album(
-    base: str,
-    *,
-    keywords: tuple[str, ...] = (),
-    rng: random.Random | None = None,
-) -> dict:
-    """Pick a random album. If keywords provided, search one at random; else use day_rank."""
+def random_album(base: str, *, keywords: tuple[str, ...] = (), rng: random.Random | None = None) -> dict:
     rng = rng or random.Random()
-    if keywords:
-        kw = rng.choice(keywords)
-        results = search(base, kw)
-    else:
-        results = categories(base, order_by="day_rank")
+    results = search(base, rng.choice(keywords)) if keywords else categories(base, order_by="day_rank")
     if not results:
         raise RuntimeError("No albums returned for random pick")
     return rng.choice(results)
 
 
 def get_pdf(base: str, album_id: str, out_dir: Path, timeout: int = 900) -> Path:
-    """Stream the PDF from the API to a local file."""
+    """Download API-encrypted PDF (password = album_id)."""
     clean = album_id.removeprefix("JM").removeprefix("jm")
-    url = api_url(base, f"/get_pdf/{clean}?pdf=true&passwd=false&Titletype=2")
+    # passwd=true → API encrypts with album_id as password
+    url = api_url(base, f"/get_pdf/{clean}?pdf=true&passwd=true&Titletype=2")
     out_dir.mkdir(parents=True, exist_ok=True)
     tmp = out_dir / f"_tmp_{clean}_{int(time.time())}.pdf"
-    req = urllib.request.Request(url)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
             cd = resp.headers.get("Content-Disposition", "")
             m = re.search(r'filename="([^"]+)"', cd)
             fname = m.group(1) if m else f"{clean}.pdf"
@@ -336,14 +259,15 @@ def get_pdf(base: str, album_id: str, out_dir: Path, timeout: int = 900) -> Path
 def cmd_doctor(args: argparse.Namespace, local: dict) -> None:
     base = config_value(args, local, "api_base", "JMAPI_BASE", DEFAULT_API_BASE)
     project_dir = config_value(args, local, "project_dir", "JMAPI_PROJECT_DIR", DEFAULT_PROJECT_DIR)
-    running = is_service_running(base)
-    uv = _find_uv()
     pd = Path(project_dir)
+    gs = _find_gs()
     lines = [
         f"API base:      {base}",
-        f"Service:       {'running ✓' if running else 'not running ✗'}",
-        f"uv:            {'found ✓' if uv else 'not found ✗'}",
+        f"Service:       {'running ✓' if is_service_running(base) else 'not running ✗'}",
+        f"uv:            {'found ✓' if _find_uv() else 'not found ✗'}",
         f"Project dir:   {project_dir} ({'exists ✓' if pd.exists() else 'not found ✗'})",
+        f"Venv ready:    {'yes ✓' if _venv_ready(project_dir) else 'no (first run will install)'}",
+        f"Ghostscript:   {gs + ' ✓' if gs else 'not found (compression disabled)'}",
     ]
     print("\n".join(lines))
 
@@ -368,6 +292,25 @@ def cmd_search(args: argparse.Namespace, local: dict) -> None:
     print("\n".join(lines))
 
 
+def _download_and_output(base: str, album_id: str, out_dir: Path) -> None:
+    clean = album_id.removeprefix("JM").removeprefix("jm")
+    print(f"[jm] Downloading [{clean}] ...", flush=True)
+    pdf_path = get_pdf(base, clean, out_dir)
+    pdf_path = compress_pdf(pdf_path)
+    print(f"pdf_path={pdf_path}")
+    print(f"pdf_password={clean}")
+    print(f"album_id={clean}")
+    print(f"filename={pdf_path.name}")
+
+
+def cmd_get(args: argparse.Namespace, local: dict) -> None:
+    base = config_value(args, local, "api_base", "JMAPI_BASE", DEFAULT_API_BASE)
+    project_dir = config_value(args, local, "project_dir", "JMAPI_PROJECT_DIR", DEFAULT_PROJECT_DIR)
+    out_dir = Path(config_value(args, local, "out", "JMAPI_OUT_DIR", DEFAULT_OUT_DIR))
+    ensure_service(base, project_dir)
+    _download_and_output(base, args.album_id, out_dir)
+
+
 def cmd_random(args: argparse.Namespace, local: dict) -> None:
     base = config_value(args, local, "api_base", "JMAPI_BASE", DEFAULT_API_BASE)
     project_dir = config_value(args, local, "project_dir", "JMAPI_PROJECT_DIR", DEFAULT_PROJECT_DIR)
@@ -375,52 +318,12 @@ def cmd_random(args: argparse.Namespace, local: dict) -> None:
     ensure_service(base, project_dir)
 
     kw_str = config_value(args, local, "random_keywords", "JMAPI_RANDOM_KEYWORDS", "")
-    if kw_str:
-        keywords: tuple[str, ...] = tuple(k.strip() for k in kw_str.split(",") if k.strip())
-    else:
-        keywords = ()
+    keywords: tuple[str, ...] = tuple(k.strip() for k in kw_str.split(",") if k.strip()) if kw_str else ()
 
     album = random_album(base, keywords=keywords)
     album_id = str(album["id"]).removeprefix("JM").removeprefix("jm")
     print(f"[jm] Random pick: [{album_id}] {album['title']}", flush=True)
-    print(f"[jm] Downloading album {album_id} as PDF ...", flush=True)
-    pdf_path = get_pdf(base, album_id, out_dir)
-
-    pw = random_password()
-    zip_name = pdf_path.stem + f"_{int(time.time())}.zip"
-    zip_path = out_dir / zip_name
-    print("[jm] Packing into encrypted ZIP ...", flush=True)
-    create_encrypted_zip([pdf_path], zip_path, pw)
-    pdf_path.unlink(missing_ok=True)
-
-    print(f"zip_path={zip_path}")
-    print(f"zip_password={pw}")
-    print(f"album_id={album_id}")
-    print(f"album_title={album['title']}")
-    print(f"filename={zip_path.name}")
-
-
-def cmd_zip(args: argparse.Namespace, local: dict) -> None:
-    base = config_value(args, local, "api_base", "JMAPI_BASE", DEFAULT_API_BASE)
-    project_dir = config_value(args, local, "project_dir", "JMAPI_PROJECT_DIR", DEFAULT_PROJECT_DIR)
-    out_dir = Path(config_value(args, local, "out", "JMAPI_OUT_DIR", DEFAULT_OUT_DIR))
-    ensure_service(base, project_dir)
-
-    album_id = args.album_id.removeprefix("JM").removeprefix("jm")
-    print(f"[jm] Downloading album {album_id} as PDF ...", flush=True)
-    pdf_path = get_pdf(base, album_id, out_dir)
-
-    pw = random_password()
-    zip_name = pdf_path.stem + f"_{int(time.time())}.zip"
-    zip_path = out_dir / zip_name
-    print("[jm] Packing into encrypted ZIP ...", flush=True)
-    create_encrypted_zip([pdf_path], zip_path, pw)
-    pdf_path.unlink(missing_ok=True)
-
-    print(f"zip_path={zip_path}")
-    print(f"zip_password={pw}")
-    print(f"album_id={album_id}")
-    print(f"filename={zip_path.name}")
+    _download_and_output(base, album_id, out_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -442,14 +345,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--limit", type=int, default=10)
     s.add_argument("--json", dest="json_out", action="store_true")
 
+    g = sub.add_parser("get", help="Download album as encrypted PDF")
+    g.add_argument("album_id")
+    g.add_argument("--out", default="")
+
     r = sub.add_parser("random", help="Pick and download a random album")
     r.add_argument("--out", default="")
-    r.add_argument("--keywords", dest="random_keywords", default="",
-                   help="Comma-separated keyword pool (overrides config)")
-
-    z = sub.add_parser("zip", help="Download album and pack as encrypted zip")
-    z.add_argument("album_id")
-    z.add_argument("--out", default="")
+    r.add_argument("--keywords", dest="random_keywords", default="")
 
     return p
 
@@ -459,14 +361,15 @@ def main() -> None:
     args = parser.parse_args()
     local = load_local_config()
 
-    if args.cmd == "doctor":
-        cmd_doctor(args, local)
-    elif args.cmd == "search":
-        cmd_search(args, local)
-    elif args.cmd == "random":
-        cmd_random(args, local)
-    elif args.cmd == "zip":
-        cmd_zip(args, local)
+    dispatch = {
+        "doctor": cmd_doctor,
+        "search": cmd_search,
+        "get": cmd_get,
+        "random": cmd_random,
+    }
+    fn = dispatch.get(args.cmd)
+    if fn:
+        fn(args, local)
     else:
         parser.print_help()
         sys.exit(1)

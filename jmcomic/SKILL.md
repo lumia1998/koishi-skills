@@ -1,15 +1,15 @@
 ---
 name: jmcomic
-description: Use when a bot or assistant needs JMComic/禁漫天堂 comic search or encrypted ZIP downloads, including jmxxxxx, JMxxxxx, jm号, 禁漫, 禁漫本子, 我要看本子, 我要看jm, 我要看禁漫, 搜xxx本子, 给我jm, 下载jm, 来个禁漫, 随便来个本子, or any request to search or download a comic from JMComic and receive a password-protected ZIP file.
+description: Use when a bot or assistant needs JMComic/禁漫天堂 comic search or encrypted PDF downloads, including jmxxxxx, JMxxxxx, jm号, 禁漫, 禁漫本子, 我要看本子, 我要看jm, 我要看禁漫, 搜xxx本子, 给我jm, 下载jm, 来个禁漫, 随便来个本子, or any request to search or download a comic from JMComic and receive a password-protected PDF file.
 ---
 
-# JMComic ZIP Bot
+# JMComic PDF Bot
 
 ## Overview
 
-Use this skill for conversational JMComic/禁漫天堂 搜索和下载。搜索阶段只给用户纯文本候选；下载阶段打包成带随机密码的 ZIP 文件发送。
+搜索和下载 JMComic/禁漫天堂 专辑，发送带密码的加密 PDF 文件给用户。
 
-不要返回图片 URL、页面 URL、封面 URL，也不要逐张发送图片。
+不要返回图片 URL、页面链接。只发送加密 PDF 和解压密码。
 
 ## Configuration
 
@@ -40,30 +40,25 @@ Use this skill for conversational JMComic/禁漫天堂 搜索和下载。搜索�
 - `给我 jm12345`
 - `我要看禁漫` / `来个禁漫本子` / `我要看禁漫本子`
 - `搜xxx本子` / `搜xxx漫画`
-- `我要看本子，搜一下xxx`
 - `随便来个本子` / `给我整个本子` / `来个本子` / `我要看本子`（无关键词随机）
 
 ## Conversation Flow
 
 ### 1. 随机 casual 请求
 
-"随便来个本子"、"给我整个本子看"、"来个本子"等不含具体关键词时，不要询问，直接：
+"随便来个本子"、"给我整个本子看"等不含具体关键词时，直接：
 
 ```bash
 python scripts/jm_lookup.py random --out ./downloads
 ```
-
-脚本从 `random_keywords` 配置池随机挑词搜索，未配置则从日榜随机选一本，生成加密 ZIP。发送 ZIP 并告知解压密码。
 
 ### 2. 直接给 JM 号
 
 用户给出 JM 号（如 `jm12345`、`JM12345`、`12345`）时，直接：
 
 ```bash
-python scripts/jm_lookup.py zip 12345 --out ./downloads
+python scripts/jm_lookup.py get 12345 --out ./downloads
 ```
-
-发送生成的 ZIP 文件，并告知解压密码。
 
 ### 3. 关键词搜索
 
@@ -89,10 +84,21 @@ python scripts/jm_lookup.py search "关键词" --limit 10 --json
 ### 4. 用户选定后下载
 
 ```bash
-python scripts/jm_lookup.py zip <album_id> --out ./downloads
+python scripts/jm_lookup.py get <album_id> --out ./downloads
 ```
 
-发送生成的 ZIP 文件，并告知解压密码。
+## 处理下载输出
+
+`get` 和 `random` 命令成功后 stdout 输出：
+
+```
+pdf_path=/absolute/path/to/[12345] title.pdf
+pdf_password=12345
+album_id=12345
+filename=[12345] title.pdf
+```
+
+发送 `pdf_path` 的文件给用户，并告知 `pdf_password`（即专辑 ID）作为解压密码。
 
 ## Reusable Helper Script
 
@@ -100,21 +106,26 @@ python scripts/jm_lookup.py zip <album_id> --out ./downloads
 python scripts/jm_lookup.py doctor
 python scripts/jm_lookup.py search "关键词" --limit 10
 python scripts/jm_lookup.py search "关键词" --limit 10 --json
-python scripts/jm_lookup.py zip 12345 --out ./downloads
+python scripts/jm_lookup.py get 12345 --out ./downloads
 python scripts/jm_lookup.py random --out ./downloads
 ```
 
-`doctor` 检查服务状态、uv 是否安装、项目目录是否存在，不打印密码。
+`doctor` 检查服务状态、uv、venv、Ghostscript，不打印密码。
+
+## Service Auto-Deploy
+
+脚本自动检测 `.venv` 是否存在：
+- **首次运行**：执行 `uv sync --no-dev` 安装依赖（只跑一次）
+- **后续运行**：跳过安装，直接启动 uvicorn
+
+服务已在跑则完全跳过启动流程，每次调用只需 1-2 秒开销。
 
 ## Output Rules
 
-- 搜索结果发纯文本列表。
-- 不要返回图片 URL。
-- 不要返回页面 URL。
-- 不要直接发送 JSON 给用户。
-- 下载结果只发送带随机密码的 ZIP 文件。
-- 发送 ZIP 时明确告诉用户解压密码。
-- ZIP 加密由 helper 脚本内置实现，不需要额外 pip 依赖。
+- 搜索结果发纯文本列表，不发 URL。
+- 下载结果只发加密 PDF 文件。
+- 发送 PDF 时明确告诉用户解压密码（= JM 号，如 `12345`）。
+- 超过 100MB 的 PDF 自动用 Ghostscript 压缩（未安装则跳过）。
 
 ## Error Handling
 

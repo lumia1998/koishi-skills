@@ -26,12 +26,11 @@ description: Use when a bot or assistant needs JMComic/禁漫天堂 comic search
 
 ```json
 {
-  "api_base": "http://127.0.0.1:8699",
-  "project_dir": "/path/to/JMComic-Api",
-  "out": "/path/to/koishi-skills/jmcomic/downloads",
   "random_keywords": "全彩,短篇,同人,校园,恋爱"
 }
 ```
+
+默认值：`api_base = http://127.0.0.1:8699`，`project_dir` 和 `out` 根据脚本位置自动推导，只有 `random_keywords` 需要按需修改。
 
 ## When to Use
 

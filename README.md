@@ -63,9 +63,9 @@ python javbus/scripts/javbus_lookup.py random-actor
 
 ### pica
 
-用于哔咔漫画搜索、章节选择、随机来本，把漫画页下载后打包成带密码 ZIP 发送。搜索阶段只返回纯文本候选，不暴露图片/页面 URL。
+用于哔咔漫画搜索、章节选择、随机来本，把漫画页下载后打包成带密码 ZIP 发送。搜索阶段只返回纯文本候选，不暴露图片/页面 URL。通用“本子”请求默认交给 `jmcomic`；只有用户明确说 `哔咔` / `pica`，或明确要章节、第一话、第几话、ZIP 打包时，才使用此 skill。
 
-典型触发：`搜 xxx 漫画` / `随便来个本子` / `哔咔 搜 xxx`
+典型触发：`哔咔 搜 xxx` / `pica 随便来个本子` / `下载这个哔咔漫画第一话` / `把这本漫画打包 zip`
 
 首次使用需要配置账号：
 
@@ -82,6 +82,30 @@ python pica/scripts/pica_lookup.py search "关键词" --limit 10
 python pica/scripts/pica_lookup.py chapters "comicId"
 python pica/scripts/pica_lookup.py zip "comicId" 1 --out ./downloads
 python pica/scripts/pica_lookup.py random --out ./downloads
+```
+
+---
+
+### jmcomic
+
+用于 JMComic / 禁漫天堂搜索、随机推荐和 JM 号下载，把漫画生成带密码 PDF 发送。通用“本子”请求默认走这个 skill；只有明确说 `哔咔` / `pica` / 章节 / ZIP 时才交给 `pica`。
+
+典型触发：`推荐点本子` / `我要看 xxx 的本子` / `jm12345` / `jmid12345` / `禁漫12345` / `禁漫搜 xxx`
+
+首次使用会在 Linux 宿主机自动部署新版 FastAPI `JMComic-Api`，不使用 Docker。需要 `git`、`uv`、Python 3.12+，并确保 `JMAPI_REPO` 指向新版 API 仓库。
+
+```bash
+cp jmcomic/config.local.example.json jmcomic/config.local.json
+# 编辑 api_repo / project_dir / random_keywords 等配置
+```
+
+`jmcomic/config.local.json` 已在 `.gitignore`，不要提交本地配置。
+
+```bash
+python jmcomic/scripts/jm_lookup.py doctor
+python jmcomic/scripts/jm_lookup.py search "关键词" --limit 10
+python jmcomic/scripts/jm_lookup.py get 12345 --out ./downloads
+python jmcomic/scripts/jm_lookup.py random --out ./downloads
 ```
 
 ---
@@ -133,6 +157,7 @@ python -m pytest galgame/tests/test_galgame_box.py
 python -m pytest javbus/tests/test_javbus_lookup.py
 python -m pytest music/tests/test_meting_music.py
 python -m pytest pica/tests/test_pica_lookup.py
+python -m pytest jmcomic/tests/test_jm_lookup.py
 ```
 
 一次性跑全部：

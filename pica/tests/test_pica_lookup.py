@@ -244,7 +244,7 @@ def test_pica_template_config_is_safe_and_documented():
 def test_repository_readme_lists_available_skills():
     readme_text = (ROOT.parent / "README.md").read_text(encoding="utf-8")
 
-    for skill_name in ["music", "javbus", "pica"]:
+    for skill_name in ["music", "javbus", "pica", "jmcomic"]:
         assert skill_name in readme_text
     assert "config.local.example.json" in readme_text
     assert "ZIP" in readme_text
@@ -260,7 +260,9 @@ def test_repository_readme_lists_available_skills():
 def test_skill_description_mentions_pica_triggers_random_and_password_output():
     skill_text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
 
-    for phrase in ["搜xxx漫画", "搜xxxx本子", "我要看本子", "给我整个本子看", "随便来个本子", "pica", "哔咔"]:
+    for phrase in ["哔咔 搜xxx漫画", "pica 搜xxxx本子", "pica", "哔咔", "章节", "zip"]:
+        assert phrase in skill_text
+    for phrase in ["推荐点本子", "禁漫/JM", "jmcomic"]:
         assert phrase in skill_text
     assert "PICA_RANDOM_KEYWORDS" in skill_text
     assert "解压密码" in skill_text

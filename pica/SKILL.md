@@ -1,6 +1,6 @@
 ---
 name: pica
-description: Use when a bot or assistant needs Pica/哔咔 comic search or encrypted ZIP downloads, including 搜xxx漫画, 搜xxxx本子, 我要看本子, 给我整个本子看, 随便来个本子, pica, 哔咔, Pica account login, random comic selection, chapter selection, downloading comic pages, or sending password-protected zip files instead of image URLs.
+description: Use only when a bot or assistant explicitly needs Pica/哔咔 comic search, Pica account login, chapter selection, or encrypted ZIP downloads. Trigger on pica, 哔咔, PicACG, Pica account login, 下载这个漫画第一话, 第几话, 章节, 漫画 ID, 把这本漫画打包 zip, or requests that explicitly ask for a Pica/哔咔 comic and a password-protected ZIP. Do not use for generic 本子 requests such as 推荐点本子, 我要看本子, 随便来个本子, 搜xxx本子, or 禁漫/JM requests; those should use jmcomic by default unless the user says 哔咔/pica.
 ---
 
 # Pica Comic ZIP Bot
@@ -8,6 +8,8 @@ description: Use when a bot or assistant needs Pica/哔咔 comic search or encry
 ## Overview
 
 Use this skill for conversational Pica/哔咔漫画搜索和下载。搜索阶段只给用户纯文本候选；下载阶段必须下载图片并打包成带密码 ZIP 文件发送。
+
+通用“本子”请求默认交给 `jmcomic`。只有用户明确说 `哔咔` / `pica`，或明确要章节、第一话、第几话、ZIP 打包时，才使用此 skill。
 
 不要返回图片 URL、页面 URL、封面 URL，也不要逐张发送图片。
 
@@ -40,29 +42,31 @@ Example `pica/config.local.json`:
 }
 ```
 
-`PICA_RANDOM_KEYWORDS` is a comma-separated keyword pool used for casual requests such as “给我整个本子看” or “随便来个本子”. Default: `全彩,短篇,同人,校园,恋爱`. `PICA_RANDOM_CHAPTER` can be `first` or `random`; default is `first`.
+`PICA_RANDOM_KEYWORDS` is a comma-separated keyword pool used only for explicit Pica casual requests such as “哔咔随便来个本子” or “pica 给我整个本子看”. Default: `全彩,短篇,同人,校园,恋爱`. `PICA_RANDOM_CHAPTER` can be `first` or `random`; default is `first`.
 
 ## When to Use
 
 Use this skill for messages like:
 
-- `搜xxx漫画`
-- `搜xxxx本子`
-- `我要看本子`
-- `给我整个本子看`
-- `随便来个本子`
-- `来个本子`
 - `pica 搜一下 xxx`
 - `哔咔 搜 xxx`
+- `哔咔 搜xxx漫画`
+- `pica 搜xxxx本子`
+- `哔咔我要看本子`
+- `哔咔给我整个本子看`
+- `pica 随便来个本子`
 - `下载这个漫画第一话`
+- `下载这个哔咔漫画第一话`
 - `把这本漫画打包 zip`
-- Any Pica/哔咔 comic request that should return a password-protected ZIP
+- Any explicit Pica/哔咔 comic request that should return a password-protected ZIP
+
+Do not use this skill for generic `推荐点本子`、`我要看本子`、`随便来个本子`、`搜xxx本子`、`禁漫xxx` or `jm12345`; use `jmcomic` instead.
 
 ## Conversation Flow
 
 ### 1. Random casual requests
 
-For casual requests such as “给我整个本子看”, “随便来个本子”, “来个本子”, or “我要看本子” without a keyword, do not ask for a keyword. Use the configured random keyword pool and package a random result:
+For explicit Pica casual requests such as “哔咔给我整个本子看”, “pica 随便来个本子”, “哔咔来个本子”, or “pica 我要看本子” without a keyword, do not ask for a keyword. Use the configured random keyword pool and package a random result:
 
 ```bash
 python scripts/pica_lookup.py random --out ./downloads

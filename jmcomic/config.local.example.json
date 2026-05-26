@@ -1,0 +1,10 @@
+{
+  "api_base": "http://127.0.0.1:8699",
+  "project_dir": "~/services/JMComic-Api",
+  "api_repo": "https://github.com/FfmpegZZZ/JMComic-Api",
+  "api_ref": "",
+  "bind_host": "127.0.0.1",
+  "start_timeout": 60,
+  "auto_deploy": true,
+  "random_keywords": "全彩,短篇,同人,校园,恋爱"
+}

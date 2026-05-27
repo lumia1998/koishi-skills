@@ -1,6 +1,6 @@
 {
   "api_base": "http://127.0.0.1:8699",
-  "project_dir": "D:/lumia/Desktop/comic/comic-api",
+  "project_dir": "/absolute/path/to/comic-api",
   "api_repo": "https://github.com/lumia1998/comic-api",
   "bind_host": "127.0.0.1",
   "start_timeout": 90,

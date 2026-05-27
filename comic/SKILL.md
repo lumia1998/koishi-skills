@@ -50,7 +50,7 @@ description: 聚合漫画 skill，同时覆盖禁漫天堂(JM)和哔咔漫画(Bi
 ```json
 {
   "api_base": "http://127.0.0.1:8699",
-  "project_dir": "D:/lumia/Desktop/comic/comic-api",
+  "project_dir": "/absolute/path/to/comic-api",
   "api_repo": "https://github.com/lumia1998/comic-api",
   "auto_deploy": true
 }

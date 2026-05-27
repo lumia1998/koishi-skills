@@ -7,14 +7,13 @@ If the service is not running, the script auto-clones and starts it.
 Usage:
     python scripts/comic_lookup.py doctor
     python scripts/comic_lookup.py search "花火" [--source jm|bika|all] [--limit 10]
-    python scripts/comic_lookup.py get jm 123456
-    python scripts/comic_lookup.py get bika <comic_id>
-    python scripts/comic_lookup.py chapter <source> <comic_id> <chapter_id> --out ./downloads
+    python scripts/comic_lookup.py detail jm 123456
+    python scripts/comic_lookup.py detail bika <comic_id>
+    python scripts/comic_lookup.py download <source> <comic_id> [--chapter <ch_id>] [--out ./downloads]
     python scripts/comic_lookup.py leaderboard [--source jm|bika] [--mode day|week|month|total]
     python scripts/comic_lookup.py category [--source jm|bika] [--name 同人]
     python scripts/comic_lookup.py latest [--source jm|bika]
     python scripts/comic_lookup.py random [--source jm|bika]
-    python scripts/comic_lookup.py download <source> <comic_id> [--chapter <ch_id>] --out ./downloads
 """
 
 from __future__ import annotations
@@ -105,6 +104,18 @@ def auto_deploy_enabled(args: argparse.Namespace, local: dict) -> bool:
     if "auto_deploy" in local:
         return _as_bool(local["auto_deploy"], default=True)
     return True
+
+
+def normalize_source(src: str) -> str:
+    """将源标识符归一化为 'jm' 或 'bika'"""
+    if not src:
+        return src
+    src_lower = src.strip().lower()
+    if src_lower in ("jm", "禁漫", "禁漫天堂"):
+        return "jm"
+    if src_lower in ("bika", "哔咔", "哔咔漫画", "pica"):
+        return "bika"
+    return src_lower
 
 # ---------------------------------------------------------------------------
 # HTTP helpers
@@ -307,7 +318,7 @@ def ensure_service(base: str, project_dir: str, args: argparse.Namespace, local:
 # ---------------------------------------------------------------------------
 
 def api_search(base: str, keyword: str) -> dict[str, Any]:
-    """POST /api/search?keyword=..."""
+    """GET /api/search?keyword=..."""
     url = api_url(base, "/api/search", {"keyword": keyword})
     return _get_json(url)
 
@@ -513,7 +524,11 @@ def _dl_image(url: str, idx: int, retries: int = 3, timeout: int = 30) -> bytes:
     last: Exception = RuntimeError("no attempt")
     for attempt in range(retries + 1):
         try:
-            with urllib.request.urlopen(url, timeout=timeout) as r:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7 Build/TQ1A.230305.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36",
+                "Referer": url,
+            })
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.read()
         except Exception as e:
             last = e
@@ -622,22 +637,30 @@ def fmt_comics(comics: list[dict], source_label: str = "") -> str:
     return "\n".join(lines)
 
 
-def fmt_search(result: dict) -> str:
+def fmt_search(result: dict, limit: int = 10, source: str = "all") -> str:
     best = result.get("best_match") or {}
     all_res = result.get("all_results") or {}
     jm_list = all_res.get("jm", [])
     bika_list = all_res.get("bika", [])
 
     parts: list[str] = []
+    # 只有当最佳匹配的源符合筛选源时，才显示最佳匹配
     if best and best.get("title"):
-        src_label = "禁漫" if best.get("source") == "jm" else "哔咔"
-        parts.append(f"[最佳] [{src_label}|{best.get('id')}]:\n  {best.get('title')}  作者:{best.get('author','佚名')}")
+        best_source = best.get("source")
+        if source == "all" or best_source == source:
+            src_label = "禁漫" if best_source == "jm" else "哔咔"
+            parts.append(f"[最佳] [{src_label}|{best.get('id')}]:\n  {best.get('title')}  作者:{best.get('author','佚名')}")
 
     combined: list[dict] = []
-    for item in jm_list:
-        item = dict(item); item.setdefault("source", "jm"); combined.append(item)
-    for item in bika_list:
-        item = dict(item); item.setdefault("source", "bika"); combined.append(item)
+    if source in ("all", "jm"):
+        for item in jm_list:
+            item = dict(item); item.setdefault("source", "jm"); combined.append(item)
+    if source in ("all", "bika"):
+        for item in bika_list:
+            item = dict(item); item.setdefault("source", "bika"); combined.append(item)
+
+    if limit is not None and limit > 0:
+        combined = combined[:limit]
 
     if combined:
         parts.append(f"\n找到 {len(combined)} 个结果：")
@@ -692,13 +715,15 @@ def cmd_search(args: argparse.Namespace, local: dict) -> None:
     if getattr(args, "json_out", False):
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
-    print(fmt_search(result))
+    source = normalize_source(getattr(args, "source", "all"))
+    limit = getattr(args, "limit", 10)
+    print(fmt_search(result, limit=limit, source=source))
 
 
 def cmd_detail(args: argparse.Namespace, local: dict) -> None:
     base, project_dir = _common_cfg(args, local)
     ensure_service(base, project_dir, args, local)
-    source = args.source
+    source = normalize_source(args.source)
     comic_id = args.comic_id
     detail = api_comic_detail(base, source, comic_id)
     if getattr(args, "json_out", False):
@@ -729,7 +754,7 @@ def cmd_download(args: argparse.Namespace, local: dict) -> None:
     base, project_dir = _common_cfg(args, local)
     ensure_service(base, project_dir, args, local)
 
-    source = args.source
+    source = normalize_source(args.source)
     comic_id = args.comic_id
     chapter_id = getattr(args, "chapter", None)
     out_dir = Path(config_value(args, local, "out", "COMIC_API_OUT_DIR", DEFAULT_OUT_DIR)).expanduser()
@@ -774,7 +799,7 @@ def cmd_download(args: argparse.Namespace, local: dict) -> None:
     )
 
     password = make_password(chapter_id)
-    print("\n[OK] 下载完成！")
+    print("\n✅ 下载完成！")
     for zp in zip_paths:
         size_mb = zp.stat().st_size / (1024 * 1024)
         print(f"zip_path={zp}")
@@ -790,7 +815,7 @@ def cmd_download(args: argparse.Namespace, local: dict) -> None:
 def cmd_leaderboard(args: argparse.Namespace, local: dict) -> None:
     base, project_dir = _common_cfg(args, local)
     ensure_service(base, project_dir, args, local)
-    source = getattr(args, "source", "jm")
+    source = normalize_source(getattr(args, "source", "jm"))
     mode = getattr(args, "mode", "day")
     page = getattr(args, "page", 1)
     result = api_leaderboard(base, source, mode, page)
@@ -807,7 +832,7 @@ def cmd_leaderboard(args: argparse.Namespace, local: dict) -> None:
 def cmd_category(args: argparse.Namespace, local: dict) -> None:
     base, project_dir = _common_cfg(args, local)
     ensure_service(base, project_dir, args, local)
-    source = getattr(args, "source", "jm")
+    source = normalize_source(getattr(args, "source", "jm"))
     name = getattr(args, "name", "doujin")
     page = getattr(args, "page", 1)
     sort_raw = getattr(args, "sort", "") or ""
@@ -832,7 +857,7 @@ def cmd_category(args: argparse.Namespace, local: dict) -> None:
 def cmd_latest(args: argparse.Namespace, local: dict) -> None:
     base, project_dir = _common_cfg(args, local)
     ensure_service(base, project_dir, args, local)
-    source = getattr(args, "source", "jm")
+    source = normalize_source(getattr(args, "source", "jm"))
     page = getattr(args, "page", 1)
     sort_raw = getattr(args, "sort", "") or ""
     sort = sort_raw if sort_raw else ("new" if source == "jm" else "dd")
@@ -856,7 +881,7 @@ def cmd_latest(args: argparse.Namespace, local: dict) -> None:
 def cmd_random(args: argparse.Namespace, local: dict) -> None:
     base, project_dir = _common_cfg(args, local)
     ensure_service(base, project_dir, args, local)
-    source = getattr(args, "source", "jm")
+    source = normalize_source(getattr(args, "source", "jm"))
     result = api_random(base, source)
     if getattr(args, "json_out", False):
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -890,33 +915,33 @@ def build_parser() -> argparse.ArgumentParser:
     # search
     s = sub.add_parser("search", help="聚合搜索 (禁漫+哔咔)")
     s.add_argument("keyword")
-    s.add_argument("--source", choices=["jm", "bika", "all"], default="all")
+    s.add_argument("--source", choices=["jm", "bika", "all", "禁漫", "哔咔"], default="all")
     s.add_argument("--limit", type=int, default=10)
     s.add_argument("--json", dest="json_out", action="store_true")
 
     # detail
     d = sub.add_parser("detail", help="查看漫画详情和章节列表")
-    d.add_argument("source", choices=["jm", "bika"])
+    d.add_argument("source", choices=["jm", "bika", "禁漫", "哔咔"])
     d.add_argument("comic_id")
     d.add_argument("--json", dest="json_out", action="store_true")
 
     # download
     dl = sub.add_parser("download", help="下载章节为加密 ZIP")
-    dl.add_argument("source", choices=["jm", "bika"])
+    dl.add_argument("source", choices=["jm", "bika", "禁漫", "哔咔"])
     dl.add_argument("comic_id")
     dl.add_argument("--chapter", default=None, help="章节 ID，不填则下载第一话")
     dl.add_argument("--out", default="")
 
     # leaderboard
     lb = sub.add_parser("leaderboard", help="排行榜")
-    lb.add_argument("--source", choices=["jm", "bika"], default="jm")
+    lb.add_argument("--source", choices=["jm", "bika", "禁漫", "哔咔"], default="jm")
     lb.add_argument("--mode", choices=["day", "week", "month", "total"], default="day")
     lb.add_argument("--page", type=int, default=1)
     lb.add_argument("--json", dest="json_out", action="store_true")
 
     # category
     cat = sub.add_parser("category", help="分类浏览")
-    cat.add_argument("--source", choices=["jm", "bika"], default="jm")
+    cat.add_argument("--source", choices=["jm", "bika", "禁漫", "哔咔"], default="jm")
     cat.add_argument("--name", default="doujin")
     cat.add_argument("--page", type=int, default=1)
     cat.add_argument("--sort", default="",
@@ -925,7 +950,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # latest
     lat = sub.add_parser("latest", help="浏览漫画列表")
-    lat.add_argument("--source", choices=["jm", "bika"], default="jm")
+    lat.add_argument("--source", choices=["jm", "bika", "禁漫", "哔咔"], default="jm")
     lat.add_argument("--page", type=int, default=1)
     lat.add_argument("--sort", default="",
                      help="禁漫: new/mv/tf/mp | 哔咔: dd/ld/vd/da (不填则默认最新)")
@@ -933,7 +958,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # random
     rnd = sub.add_parser("random", help="随机推荐")
-    rnd.add_argument("--source", choices=["jm", "bika"], default="jm")
+    rnd.add_argument("--source", choices=["jm", "bika", "禁漫", "哔咔"], default="jm")
     rnd.add_argument("--json", dest="json_out", action="store_true")
 
     return p

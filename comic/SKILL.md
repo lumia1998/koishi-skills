@@ -37,7 +37,7 @@ description: 聚合漫画 skill，同时覆盖禁漫天堂(JM)和哔咔漫画(Bi
 | 设置 | 环境变量 | CLI 参数 | 默认值 |
 |---|---|---|---|
 | API 地址 | `COMIC_API_BASE` | `--api-base` | `http://127.0.0.1:8699` |
-| 项目目录 | `COMIC_API_PROJECT_DIR` | `--project-dir` | 脚本位置上推3层/comic-api |
+| 项目目录 | `COMIC_API_PROJECT_DIR` | `--project-dir` | 自动计算（koishi-skills 旁同级目录 comic-api，无需手动配置） |
 | API 仓库 | `COMIC_API_REPO` | `--api-repo` | `https://github.com/lumia1998/comic-api` |
 | 绑定地址 | `COMIC_API_BIND_HOST` | `--bind-host` | `127.0.0.1` |
 | 启动超时 | `COMIC_API_START_TIMEOUT` | `--start-timeout` | `90` |
@@ -50,7 +50,6 @@ description: 聚合漫画 skill，同时覆盖禁漫天堂(JM)和哔咔漫画(Bi
 ```json
 {
   "api_base": "http://127.0.0.1:8699",
-  "project_dir": "/absolute/path/to/comic-api",
   "api_repo": "https://github.com/lumia1998/comic-api",
   "auto_deploy": true
 }

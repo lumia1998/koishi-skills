@@ -331,15 +331,15 @@ def api_leaderboard(base: str, source: str, mode: str = "day", page: int = 1) ->
     return _get_json(url, timeout=30)
 
 
-def api_category(base: str, source: str, name: str, page: int = 1) -> dict[str, Any]:
-    """GET /api/{source}/category?name=..."""
-    url = api_url(base, f"/api/{source}/category", {"name": name, "page": page})
+def api_category(base: str, source: str, name: str, page: int = 1, sort: str = "dd") -> dict[str, Any]:
+    """GET /api/{source}/category?name=...&sort=..."""
+    url = api_url(base, f"/api/{source}/category", {"name": name, "page": page, "sort": sort})
     return _get_json(url, timeout=30)
 
 
-def api_latest(base: str, source: str, page: int = 1) -> dict[str, Any]:
-    """GET /api/{source}/latest?page=..."""
-    url = api_url(base, f"/api/{source}/latest", {"page": page})
+def api_latest(base: str, source: str, page: int = 1, sort: str = "dd") -> dict[str, Any]:
+    """GET /api/{source}/latest?page=...&sort=..."""
+    url = api_url(base, f"/api/{source}/latest", {"page": page, "sort": sort})
     return _get_json(url, timeout=30)
 
 
@@ -810,13 +810,22 @@ def cmd_category(args: argparse.Namespace, local: dict) -> None:
     source = getattr(args, "source", "jm")
     name = getattr(args, "name", "doujin")
     page = getattr(args, "page", 1)
-    result = api_category(base, source, name, page)
+    sort_raw = getattr(args, "sort", "") or ""
+    sort = sort_raw if sort_raw else ("new" if source == "jm" else "dd")
+    result = api_category(base, source, name, page, sort)
     if getattr(args, "json_out", False):
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
     comics = result.get("data", [])
     src_label = "禁漫" if source == "jm" else "哔咔"
-    print(f"[分类] {src_label} 分类「{name}」(第{page}页):")
+    sort_map = {
+        "new": "最新", "dd": "最新",
+        "mv": "最多观看", "vd": "最多观看",
+        "tf": "最多喜欢", "ld": "最多喜欢",
+        "mp": "最多指名", "da": "最旧",
+    }
+    sort_label = sort_map.get(sort, sort)
+    print(f"[分类] {src_label} 分类「{name}」| {sort_label} (第{page}页):")
     print(fmt_comics(comics, source))
 
 
@@ -825,13 +834,22 @@ def cmd_latest(args: argparse.Namespace, local: dict) -> None:
     ensure_service(base, project_dir, args, local)
     source = getattr(args, "source", "jm")
     page = getattr(args, "page", 1)
-    result = api_latest(base, source, page)
+    sort_raw = getattr(args, "sort", "") or ""
+    sort = sort_raw if sort_raw else ("new" if source == "jm" else "dd")
+    result = api_latest(base, source, page, sort)
     if getattr(args, "json_out", False):
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
     comics = result.get("data", [])
     src_label = "禁漫" if source == "jm" else "哔咔"
-    print(f"[更新] {src_label} 最近更新 (第{page}页):")
+    sort_map = {
+        "new": "最新", "dd": "最新",
+        "mv": "最多观看", "vd": "最多观看",
+        "tf": "最多喜欢", "ld": "最多喜欢",
+        "mp": "最多指名",
+    }
+    sort_label = sort_map.get(sort, sort)
+    print(f"[浏览] {src_label} | {sort_label} (第{page}页):")
     print(fmt_comics(comics, source))
 
 
@@ -901,12 +919,16 @@ def build_parser() -> argparse.ArgumentParser:
     cat.add_argument("--source", choices=["jm", "bika"], default="jm")
     cat.add_argument("--name", default="doujin")
     cat.add_argument("--page", type=int, default=1)
+    cat.add_argument("--sort", default="",
+                     help="禁漫: new/mv/tf/mp | 哔咔: dd/ld/vd/da (不填则默认最新)")
     cat.add_argument("--json", dest="json_out", action="store_true")
 
     # latest
-    lat = sub.add_parser("latest", help="最近更新")
+    lat = sub.add_parser("latest", help="浏览漫画列表")
     lat.add_argument("--source", choices=["jm", "bika"], default="jm")
     lat.add_argument("--page", type=int, default=1)
+    lat.add_argument("--sort", default="",
+                     help="禁漫: new/mv/tf/mp | 哔咔: dd/ld/vd/da (不填则默认最新)")
     lat.add_argument("--json", dest="json_out", action="store_true")
 
     # random

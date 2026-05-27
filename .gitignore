@@ -6,4 +6,6 @@ pica/downloads/
 pica/config.local.json
 jmcomic/config.local.json
 jmcomic/downloads/
+comic/config.local.json
+comic/downloads/
 *.zip

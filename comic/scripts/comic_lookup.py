@@ -360,268 +360,7 @@ def api_random(base: str, source: str) -> dict[str, Any]:
     return _get_json(url, timeout=30)
 
 # ---------------------------------------------------------------------------
-# ZIP creation helpers (pure stdlib, AES-128 ZipCrypto password)
-# ---------------------------------------------------------------------------
-
-CRC_TABLE: list[int] | None = None
-
-
-def _crc_table() -> list[int]:
-    global CRC_TABLE
-    if CRC_TABLE is None:
-        table = []
-        for v in range(256):
-            crc = v
-            for _ in range(8):
-                if crc & 1:
-                    crc = ((crc >> 1) ^ 0xEDB88320) & 0xFFFFFFFF
-                else:
-                    crc >>= 1
-            table.append(crc)
-        CRC_TABLE = table
-    return CRC_TABLE
-
-
-def _zcrc(val: int, b: int) -> int:
-    t = _crc_table()
-    return ((val >> 8) ^ t[(val ^ b) & 0xFF]) & 0xFFFFFFFF
-
-
-def _zkeys(pwd: bytes) -> list[int]:
-    keys = [0x12345678, 0x23456789, 0x34567890]
-    for b in pwd:
-        _zupdate(keys, b)
-    return keys
-
-
-def _zupdate(keys: list[int], b: int) -> None:
-    keys[0] = _zcrc(keys[0], b)
-    keys[1] = (keys[1] + (keys[0] & 0xFF)) & 0xFFFFFFFF
-    keys[1] = (keys[1] * 134775813 + 1) & 0xFFFFFFFF
-    keys[2] = _zcrc(keys[2], (keys[1] >> 24) & 0xFF)
-
-
-def _zbyte(keys: list[int], b: int) -> int:
-    t = (keys[2] | 2) & 0xFFFFFFFF
-    mask = ((t * (t ^ 1)) >> 8) & 0xFF
-    out = b ^ mask
-    _zupdate(keys, b)
-    return out
-
-
-def _zencrypt(data: bytes, pwd: bytes, crc: int) -> bytes:
-    keys = _zkeys(pwd)
-    header = bytearray([0] * 11 + [(crc >> 24) & 0xFF])
-    enc_header = bytearray(_zbyte(keys, v) for v in header)
-    enc_data = bytearray(_zbyte(keys, b) for b in data)
-    return bytes(enc_header) + bytes(enc_data)
-
-
-def _dos_datetime() -> tuple[int, int]:
-    t = time.localtime()
-    dt = (t.tm_hour << 11) | (t.tm_min << 5) | (t.tm_sec // 2)
-    dd = ((t.tm_year - 1980) << 9) | (t.tm_mon << 5) | t.tm_mday
-    return dt, dd
-
-
-def _zip_entry(name: str, data: bytes, pwd: str, offset: int) -> tuple[bytes, bytes]:
-    name_b = name.encode("utf-8")
-    crc = zlib.crc32(data) & 0xFFFFFFFF
-    comp = zlib.compressobj(level=6, method=zlib.DEFLATED, wbits=-15)
-    comp_data = comp.compress(data) + comp.flush()
-    enc = _zencrypt(comp_data, pwd.encode(), crc)
-    cs = len(enc)
-    us = len(data)
-    flags = 0x1 | 0x800
-    method = 8
-    dt, dd = _dos_datetime()
-
-    local = (
-        b"PK\x03\x04"
-        + (20).to_bytes(2, "little")
-        + flags.to_bytes(2, "little")
-        + method.to_bytes(2, "little")
-        + dt.to_bytes(2, "little")
-        + dd.to_bytes(2, "little")
-        + crc.to_bytes(4, "little")
-        + cs.to_bytes(4, "little")
-        + us.to_bytes(4, "little")
-        + len(name_b).to_bytes(2, "little")
-        + (0).to_bytes(2, "little")
-        + name_b
-        + enc
-    )
-    central = (
-        b"PK\x01\x02"
-        + (20).to_bytes(2, "little")
-        + (20).to_bytes(2, "little")
-        + flags.to_bytes(2, "little")
-        + method.to_bytes(2, "little")
-        + dt.to_bytes(2, "little")
-        + dd.to_bytes(2, "little")
-        + crc.to_bytes(4, "little")
-        + cs.to_bytes(4, "little")
-        + us.to_bytes(4, "little")
-        + len(name_b).to_bytes(2, "little")
-        + (0).to_bytes(2, "little")
-        + (0).to_bytes(2, "little")
-        + (0).to_bytes(2, "little")
-        + (0).to_bytes(2, "little")
-        + (0).to_bytes(4, "little")
-        + offset.to_bytes(4, "little")
-        + name_b
-    )
-    return local, central
-
-
-def create_encrypted_zip(image_paths: list[Path], zip_path: Path, password: str) -> None:
-    zip_path.parent.mkdir(parents=True, exist_ok=True)
-    records: list[bytes] = []
-    centrals: list[bytes] = []
-    offset = 0
-    for p in sorted(image_paths, key=lambda x: x.name):
-        data = p.read_bytes()
-        local, central = _zip_entry(p.name, data, password, offset)
-        records.append(local)
-        centrals.append(central)
-        offset += len(local)
-    central_dir = b"".join(centrals)
-    eocd = (
-        b"PK\x05\x06"
-        + (0).to_bytes(2, "little")
-        + (0).to_bytes(2, "little")
-        + len(records).to_bytes(2, "little")
-        + len(records).to_bytes(2, "little")
-        + len(central_dir).to_bytes(4, "little")
-        + offset.to_bytes(4, "little")
-        + (0).to_bytes(2, "little")
-    )
-    zip_path.write_bytes(b"".join(records) + central_dir + eocd)
-
-# ---------------------------------------------------------------------------
-# Password generation (6-digit pure numeric)
-# ---------------------------------------------------------------------------
-
-def make_password(seed: str) -> str:
-    """Derive a 6-digit numeric password from the chapter/comic id."""
-    import hashlib
-    h = int(hashlib.md5(seed.encode()).hexdigest(), 16)
-    return str(h % 1_000_000).zfill(6)
-
-
-
-
-def setup_venv_sys_path(project_dir: str) -> None:
-    """将 comic-api 的 .venv/site-packages 加入 sys.path 以方便导入 PIL (Pillow)"""
-    pd = Path(project_dir)
-    venv_dirs = [pd / ".venv", pd / "venv"]
-    for vd in venv_dirs:
-        if vd.exists():
-            if os.name == "nt":
-                sp = vd / "Lib" / "site-packages"
-            else:
-                sp_parents = list((vd / "lib").glob("python*"))
-                if sp_parents:
-                    sp = sp_parents[0] / "site-packages"
-                else:
-                    sp = vd / "lib" / "site-packages"
-            
-            if sp.exists() and str(sp) not in sys.path:
-                sys.path.insert(0, str(sp))
-                return
-
-
-def create_compressed_pdf(image_paths: list[Path], pdf_path: Path, limit_bytes: float) -> None:
-    """将所有图片打包为单个 PDF 文件，当体积超限时，自动以不同质量进行 JPEG 重压缩以压缩文件体积。"""
-    try:
-        from PIL import Image
-    except ImportError:
-        raise RuntimeError("未能在环境中找到 PIL 模块，请确保 comic-api 的依赖已成功安装。")
-        
-    qualities = [85, 60, 40, 20]
-    img_list = []
-    try:
-        for p in sorted(image_paths, key=lambda x: x.name):
-            img = Image.open(p)
-            if img.mode != "RGB":
-                img = img.convert("RGB")
-            img_list.append(img)
-            
-        for q in qualities:
-            print(f"[comic] 尝试以 JPEG 质量 {q} 压缩 PDF ...", flush=True)
-            bio = io.BytesIO()
-            img_list[0].save(bio, "PDF", save_all=True, append_images=img_list[1:], quality=q, optimize=True)
-            pdf_bytes = bio.getvalue()
-            size = len(pdf_bytes)
-            print(f"[comic] 压缩结果体积: {size / (1024 * 1024):.2f}MB, 目标限额: {limit_bytes / (1024 * 1024):.2f}MB", flush=True)
-            
-            if size <= limit_bytes or q == qualities[-1]:
-                if size > limit_bytes:
-                    print(f"[comic] 警告：已尝试最低质量，文件体积 ({size / (1024 * 1024):.1f}MB) 仍超出限制，将直接发送。", flush=True)
-                pdf_path.parent.mkdir(parents=True, exist_ok=True)
-                pdf_path.write_bytes(pdf_bytes)
-                break
-    finally:
-        for img in img_list:
-            try:
-                img.close()
-            except Exception:
-                pass
-
-# ---------------------------------------------------------------------------
-# Image download
-# ---------------------------------------------------------------------------
-
-def _image_suffix(url: str) -> str:
-    path = urllib.parse.urlparse(url).path.lower()
-    for ext in [".png", ".webp", ".gif", ".jpg", ".jpeg"]:
-        if path.endswith(ext):
-            return ext
-    return ".jpg"
-
-
-def _dl_image(url: str, idx: int, retries: int = 3, timeout: int = 30) -> bytes:
-    last: Exception = RuntimeError("no attempt")
-    for attempt in range(retries + 1):
-        try:
-            req = urllib.request.Request(url, headers={
-                "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7 Build/TQ1A.230305.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36",
-                "Referer": url,
-            })
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                return r.read()
-        except Exception as e:
-            last = e
-            if attempt < retries:
-                time.sleep(2)
-    raise RuntimeError(f"图片 {idx+1} 下载失败: {last}")
-
-
-def download_images_parallel(
-    urls: list[str],
-    out_dir: Path,
-    concurrency: int = 4,
-) -> list[Path]:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    results: dict[int, Path] = {}
-    with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        futures = {
-            pool.submit(_dl_image, url, idx): idx
-            for idx, url in enumerate(urls)
-        }
-        for fut in as_completed(futures):
-            idx = futures[fut]
-            data = fut.result()
-            suffix = _image_suffix(urls[idx])
-            p = out_dir / f"{idx+1:04d}{suffix}"
-            p.write_bytes(data)
-            results[idx] = p
-    if len(results) != len(urls):
-        raise RuntimeError("部分图片下载失败")
-    return [results[i] for i in sorted(results)]
-
-# ---------------------------------------------------------------------------
-# High-level download: chapter → split ZIPs if > MAX_PAGES_PER_PART pages
+# High-level download: chapter → stream from FastAPI download endpoint
 # ---------------------------------------------------------------------------
 
 def sanitize(name: str) -> str:
@@ -642,38 +381,32 @@ def download_chapter(
     out_dir: Path,
     concurrency: int = 4,
 ) -> Path:
-    """下载章节并生成一个加密 PDF 文件。
-
-    返回生成的 PDF 文件路径。
-    自适应重压缩逻辑：
-    - 限制规格：每 50 页对应 10MB (limit_bytes = 10 * math.ceil(total_pages / 50) * 1024 * 1024)。
-    - 首先尝试以较好质量打包为单个 PDF。若超限，则依次降低 JPEG 质量进行重压缩。
-    """
-    print(f"[comic] 获取章节图片列表: {source}/{comic_id}/{chapter_id} ...", flush=True)
-    images = api_chapter_images(base, source, comic_id, chapter_id)
-    if not images:
-        raise RuntimeError("该章节没有图片，或平台限制访问")
-
+    """从 FastAPI 后端下载打包并自适应压缩后的单文件 PDF"""
     safe_title = sanitize(comic_title)
     safe_ch = sanitize(chapter_name)
-    total = len(images)
+    pdf_name = f"{safe_title}_{safe_ch}.pdf"
+    pdf_path = out_dir / pdf_name
 
-    with tempfile.TemporaryDirectory(prefix="comic_dl_") as tmp:
-        tmp_dir = Path(tmp)
-        print(f"[comic] 共 {total} 页，正在并行下载 ...", flush=True)
-        # 下载所有图片到临时目录
-        all_paths = download_images_parallel(images, tmp_dir, concurrency=concurrency)
+    print(f"[comic] 正在从 API 后端下载自适应压缩 PDF: {pdf_name} ...", flush=True)
 
-        # 打包并自适应压缩成 PDF 文件
-        pdf_name = f"{safe_title}_{safe_ch}.pdf"
-        pdf_path = out_dir / pdf_name
-        print(f"[comic] 正在打包并自适应压缩为单文件 PDF: {pdf_name} ...", flush=True)
+    url = api_url(base, f"/api/download/{source}/{urllib.parse.quote(str(comic_id), safe='')}/{urllib.parse.quote(str(chapter_id), safe='')}", {
+        "title": comic_title,
+        "chapter": chapter_name
+    })
 
-        # 限制字节数：每 50 页对应 10MB
-        limit_bytes = 10 * math.ceil(total / 50) * 1024 * 1024
-        
-        create_compressed_pdf(all_paths, pdf_path, limit_bytes)
-        return pdf_path
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=900) as response:
+            pdf_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = pdf_path.with_suffix(".pdf.tmp")
+            with open(tmp_path, "wb") as f:
+                shutil.copyfileobj(response, f)
+            tmp_path.replace(pdf_path)
+            return pdf_path
+    except urllib.error.HTTPError as e:
+        raise _http_error(e) from e
+    except Exception as e:
+        raise RuntimeError(f"从后端服务下载 PDF 失败: {e}")
 
 # ---------------------------------------------------------------------------
 # Format helpers
@@ -808,16 +541,6 @@ def cmd_detail(args: argparse.Namespace, local: dict) -> None:
 def cmd_download(args: argparse.Namespace, local: dict) -> None:
     base, project_dir = _common_cfg(args, local)
     ensure_service(base, project_dir, args, local)
-    
-    # 检查并自动切换至虚拟环境 Python 执行，以解决全局 Python 与 venv 的 C-extensions 版本不匹配 (Pillow 导入错误) 的问题
-    venv_py = _venv_python(project_dir)
-    if venv_py.exists():
-        sys_exe = Path(sys.executable).resolve()
-        venv_exe = venv_py.resolve()
-        if sys_exe != venv_exe:
-            cmd = [str(venv_py)] + sys.argv
-            res = subprocess.run(cmd)
-            sys.exit(res.returncode)
 
     source = normalize_source(args.source)
     comic_id = args.comic_id

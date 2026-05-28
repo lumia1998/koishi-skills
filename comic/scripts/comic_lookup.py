@@ -578,11 +578,15 @@ def download_chapter(
     out_dir: Path,
     concurrency: int = 4,
 ) -> list[Path]:
-    """Download a chapter and create one or more encrypted ZIPs.
+    """下载章节并生成一个或多个加密 ZIP 文件。
 
-    Returns list of created ZIP paths.
-    Password is a 6-digit number derived from chapter_id.
-    If chapter has >MAX_PAGES_PER_PART pages, split into multiple ZIPs.
+    返回生成的 ZIP 文件路径列表。
+    密码是根据 chapter_id 派生的 6 位纯数字。
+    自适应分卷逻辑：
+    - 首先尝试打包为单个 ZIP 文件。
+    - 判断单文件大小是否符合限制：每 50 页对应 10MB (limit_mb = 10 * math.ceil(total_pages / 50))。
+    - 如果单文件大小未超限，则直接返回单文件，不进行分拆（如：90 页文件若小于 20MB 则直接发送单文件）。
+    - 如果单文件大小超限，则根据页数及体积限制自动分割成多份（分卷）打包发送。
     """
     print(f"[comic] 获取章节图片列表: {source}/{comic_id}/{chapter_id} ...", flush=True)
     images = api_chapter_images(base, source, comic_id, chapter_id)
@@ -594,31 +598,60 @@ def download_chapter(
     safe_ch = sanitize(chapter_name)
     total = len(images)
 
-    parts = math.ceil(total / MAX_PAGES_PER_PART)
-    zip_paths: list[Path] = []
-
     with tempfile.TemporaryDirectory(prefix="comic_dl_") as tmp:
         tmp_dir = Path(tmp)
-        print(f"[comic] 共 {total} 页，分 {parts} 份下载 ...", flush=True)
-        for part_idx in range(parts):
-            start = part_idx * MAX_PAGES_PER_PART
-            end = min(start + MAX_PAGES_PER_PART, total)
-            chunk_urls = images[start:end]
-            chunk_dir = tmp_dir / f"part{part_idx+1:02d}"
-            print(f"[comic] 下载第 {part_idx+1}/{parts} 份 ({start+1}-{end} 页) ...", flush=True)
-            chunk_paths = download_images_parallel(chunk_urls, chunk_dir, concurrency=concurrency)
+        print(f"[comic] 共 {total} 页，正在并行下载 ...", flush=True)
+        # 下载所有图片到临时目录
+        all_paths = download_images_parallel(images, tmp_dir, concurrency=concurrency)
 
-            if parts == 1:
-                zip_name = f"{safe_title}_{safe_ch}.zip"
-            else:
+        # 尝试先打包成单个 ZIP
+        single_zip_name = f"{safe_title}_{safe_ch}.zip"
+        single_zip_path = out_dir / single_zip_name
+        print(f"[comic] 尝试打包为单文件: {single_zip_name} ...", flush=True)
+        create_encrypted_zip(all_paths, single_zip_path, password)
+
+        # 限制规格：每 50 页对应 10MB
+        # <=50页：限制 10MB
+        # 51-100页：限制 20MB
+        # 101-150页：限制 30MB
+        # 依此类推：limit_mb = 10 * math.ceil(total / 50)
+        limit_mb = 10 * math.ceil(total / 50)
+        file_size_mb = single_zip_path.stat().st_size / (1024 * 1024)
+
+        print(f"[comic] 单文件大小: {file_size_mb:.1f}MB, 限制上限: {limit_mb}MB", flush=True)
+
+        if file_size_mb <= limit_mb:
+            print(f"[comic] 大小未超限({file_size_mb:.1f}MB <= {limit_mb}MB)，直接发送单文件。", flush=True)
+            return [single_zip_path]
+        else:
+            # 超过了限制体积，分卷压缩发送
+            try:
+                single_zip_path.unlink()
+            except Exception:
+                pass
+
+            # 分卷份数计算
+            parts = math.ceil(total / 50)
+            if parts < 2:
+                parts = 2  # 哪怕页数小于50，但体积超10M了，也必须至少分两份
+
+            # 计算每份页数
+            pages_per_part = math.ceil(total / parts)
+            print(f"[comic] 文件大小超限({file_size_mb:.1f}MB > {limit_mb}MB)，将分卷为 {parts} 份打包发送（每份约 {pages_per_part} 页）...", flush=True)
+
+            zip_paths: list[Path] = []
+            for part_idx in range(parts):
+                start = part_idx * pages_per_part
+                end = min(start + pages_per_part, total)
+                part_paths = all_paths[start:end]
+
                 zip_name = f"{safe_title}_{safe_ch}_part{part_idx+1:02d}.zip"
+                zip_path = out_dir / zip_name
+                print(f"[comic] 打包加密 ZIP 分卷 {part_idx+1}/{parts}: {zip_name} ...", flush=True)
+                create_encrypted_zip(part_paths, zip_path, password)
+                zip_paths.append(zip_path)
 
-            zip_path = out_dir / zip_name
-            print(f"[comic] 打包加密 ZIP: {zip_name} ...", flush=True)
-            create_encrypted_zip(chunk_paths, zip_path, password)
-            zip_paths.append(zip_path)
-
-    return zip_paths
+            return zip_paths
 
 # ---------------------------------------------------------------------------
 # Format helpers

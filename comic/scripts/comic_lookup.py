@@ -625,7 +625,11 @@ def download_images_parallel(
 # ---------------------------------------------------------------------------
 
 def sanitize(name: str) -> str:
-    return re.sub(r'[\\/:*?"<>|]', "_", name).strip() or "comic"
+    # 过滤文件名中的非法字符，并完全移出所有的空白字符（空格、Tab等），合并连续的下划线以保证路径绝对正确且不含空格
+    s = re.sub(r'[\\/:*?"<>|]', "_", name)
+    s = re.sub(r'\s+', '', s)
+    s = re.sub(r'_+', '_', s).strip('_')
+    return s or "comic"
 
 
 def download_chapter(

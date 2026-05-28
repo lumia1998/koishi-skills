@@ -508,6 +508,66 @@ def make_password(seed: str) -> str:
     h = int(hashlib.md5(seed.encode()).hexdigest(), 16)
     return str(h % 1_000_000).zfill(6)
 
+
+
+
+def setup_venv_sys_path(project_dir: str) -> None:
+    """将 comic-api 的 .venv/site-packages 加入 sys.path 以方便导入 PIL (Pillow)"""
+    pd = Path(project_dir)
+    venv_dirs = [pd / ".venv", pd / "venv"]
+    for vd in venv_dirs:
+        if vd.exists():
+            if os.name == "nt":
+                sp = vd / "Lib" / "site-packages"
+            else:
+                sp_parents = list((vd / "lib").glob("python*"))
+                if sp_parents:
+                    sp = sp_parents[0] / "site-packages"
+                else:
+                    sp = vd / "lib" / "site-packages"
+            
+            if sp.exists() and str(sp) not in sys.path:
+                sys.path.insert(0, str(sp))
+                return
+
+
+def create_compressed_pdf(image_paths: list[Path], pdf_path: Path, limit_bytes: float) -> None:
+    """将所有图片打包为单个 PDF 文件，当体积超限时，自动以不同质量进行 JPEG 重压缩以压缩文件体积。"""
+    try:
+        from PIL import Image
+    except ImportError:
+        raise RuntimeError("未能在环境中找到 PIL 模块，请确保 comic-api 的依赖已成功安装。")
+        
+    qualities = [85, 60, 40, 20]
+    img_list = []
+    try:
+        for p in sorted(image_paths, key=lambda x: x.name):
+            img = Image.open(p)
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            img_list.append(img)
+            
+        for q in qualities:
+            print(f"[comic] 尝试以 JPEG 质量 {q} 压缩 PDF ...", flush=True)
+            bio = io.BytesIO()
+            img_list[0].save(bio, "PDF", save_all=True, append_images=img_list[1:], quality=q, optimize=True)
+            pdf_bytes = bio.getvalue()
+            size = len(pdf_bytes)
+            print(f"[comic] 压缩结果体积: {size / (1024 * 1024):.2f}MB, 目标限额: {limit_bytes / (1024 * 1024):.2f}MB", flush=True)
+            
+            if size <= limit_bytes or q == qualities[-1]:
+                if size > limit_bytes:
+                    print(f"[comic] 警告：已尝试最低质量，文件体积 ({size / (1024 * 1024):.1f}MB) 仍超出限制，将直接发送。", flush=True)
+                pdf_path.parent.mkdir(parents=True, exist_ok=True)
+                pdf_path.write_bytes(pdf_bytes)
+                break
+    finally:
+        for img in img_list:
+            try:
+                img.close()
+            except Exception:
+                pass
+
 # ---------------------------------------------------------------------------
 # Image download
 # ---------------------------------------------------------------------------
@@ -577,23 +637,19 @@ def download_chapter(
     comic_title: str,
     out_dir: Path,
     concurrency: int = 4,
-) -> list[Path]:
-    """下载章节并生成一个或多个加密 ZIP 文件。
+) -> Path:
+    """下载章节并生成一个加密 PDF 文件。
 
-    返回生成的 ZIP 文件路径列表。
-    密码是根据 chapter_id 派生的 6 位纯数字。
-    自适应分卷逻辑：
-    - 首先尝试打包为单个 ZIP 文件。
-    - 判断单文件大小是否符合限制：每 50 页对应 10MB (limit_mb = 10 * math.ceil(total_pages / 50))。
-    - 如果单文件大小未超限，则直接返回单文件，不进行分拆（如：90 页文件若小于 20MB 则直接发送单文件）。
-    - 如果单文件大小超限，则根据页数及体积限制自动分割成多份（分卷）打包发送。
+    返回生成的 PDF 文件路径。
+    自适应重压缩逻辑：
+    - 限制规格：每 50 页对应 10MB (limit_bytes = 10 * math.ceil(total_pages / 50) * 1024 * 1024)。
+    - 首先尝试以较好质量打包为单个 PDF。若超限，则依次降低 JPEG 质量进行重压缩。
     """
     print(f"[comic] 获取章节图片列表: {source}/{comic_id}/{chapter_id} ...", flush=True)
     images = api_chapter_images(base, source, comic_id, chapter_id)
     if not images:
         raise RuntimeError("该章节没有图片，或平台限制访问")
 
-    password = make_password(chapter_id)
     safe_title = sanitize(comic_title)
     safe_ch = sanitize(chapter_name)
     total = len(images)
@@ -604,54 +660,16 @@ def download_chapter(
         # 下载所有图片到临时目录
         all_paths = download_images_parallel(images, tmp_dir, concurrency=concurrency)
 
-        # 尝试先打包成单个 ZIP
-        single_zip_name = f"{safe_title}_{safe_ch}.zip"
-        single_zip_path = out_dir / single_zip_name
-        print(f"[comic] 尝试打包为单文件: {single_zip_name} ...", flush=True)
-        create_encrypted_zip(all_paths, single_zip_path, password)
+        # 打包并自适应压缩成 PDF 文件
+        pdf_name = f"{safe_title}_{safe_ch}.pdf"
+        pdf_path = out_dir / pdf_name
+        print(f"[comic] 正在打包并自适应压缩为单文件 PDF: {pdf_name} ...", flush=True)
 
-        # 限制规格：每 50 页对应 10MB
-        # <=50页：限制 10MB
-        # 51-100页：限制 20MB
-        # 101-150页：限制 30MB
-        # 依此类推：limit_mb = 10 * math.ceil(total / 50)
-        limit_mb = 10 * math.ceil(total / 50)
-        file_size_mb = single_zip_path.stat().st_size / (1024 * 1024)
-
-        print(f"[comic] 单文件大小: {file_size_mb:.1f}MB, 限制上限: {limit_mb}MB", flush=True)
-
-        if file_size_mb <= limit_mb:
-            print(f"[comic] 大小未超限({file_size_mb:.1f}MB <= {limit_mb}MB)，直接发送单文件。", flush=True)
-            return [single_zip_path]
-        else:
-            # 超过了限制体积，分卷压缩发送
-            try:
-                single_zip_path.unlink()
-            except Exception:
-                pass
-
-            # 分卷份数计算
-            parts = math.ceil(total / 50)
-            if parts < 2:
-                parts = 2  # 哪怕页数小于50，但体积超10M了，也必须至少分两份
-
-            # 计算每份页数
-            pages_per_part = math.ceil(total / parts)
-            print(f"[comic] 文件大小超限({file_size_mb:.1f}MB > {limit_mb}MB)，将分卷为 {parts} 份打包发送（每份约 {pages_per_part} 页）...", flush=True)
-
-            zip_paths: list[Path] = []
-            for part_idx in range(parts):
-                start = part_idx * pages_per_part
-                end = min(start + pages_per_part, total)
-                part_paths = all_paths[start:end]
-
-                zip_name = f"{safe_title}_{safe_ch}_part{part_idx+1:02d}.zip"
-                zip_path = out_dir / zip_name
-                print(f"[comic] 打包加密 ZIP 分卷 {part_idx+1}/{parts}: {zip_name} ...", flush=True)
-                create_encrypted_zip(part_paths, zip_path, password)
-                zip_paths.append(zip_path)
-
-            return zip_paths
+        # 限制字节数：每 50 页对应 10MB
+        limit_bytes = 10 * math.ceil(total / 50) * 1024 * 1024
+        
+        create_compressed_pdf(all_paths, pdf_path, limit_bytes)
+        return pdf_path
 
 # ---------------------------------------------------------------------------
 # Format helpers
@@ -786,6 +804,16 @@ def cmd_detail(args: argparse.Namespace, local: dict) -> None:
 def cmd_download(args: argparse.Namespace, local: dict) -> None:
     base, project_dir = _common_cfg(args, local)
     ensure_service(base, project_dir, args, local)
+    
+    # 检查并自动切换至虚拟环境 Python 执行，以解决全局 Python 与 venv 的 C-extensions 版本不匹配 (Pillow 导入错误) 的问题
+    venv_py = _venv_python(project_dir)
+    if venv_py.exists():
+        sys_exe = Path(sys.executable).resolve()
+        venv_exe = venv_py.resolve()
+        if sys_exe != venv_exe:
+            cmd = [str(venv_py)] + sys.argv
+            res = subprocess.run(cmd)
+            sys.exit(res.returncode)
 
     source = normalize_source(args.source)
     comic_id = args.comic_id
@@ -827,17 +855,14 @@ def cmd_download(args: argparse.Namespace, local: dict) -> None:
                 break
 
     concurrency = int(config_value(args, local, "concurrency", "COMIC_API_CONCURRENCY", 4))
-    zip_paths = download_chapter(
+    pdf_path = download_chapter(
         base, source, comic_id, chapter_id, chapter_name, title, out_dir, concurrency=concurrency
     )
 
-    password = make_password(chapter_id)
     print("\n✅ 下载完成！")
-    for zp in zip_paths:
-        size_mb = zp.stat().st_size / (1024 * 1024)
-        print(f"zip_path={zp}")
-        print(f"zip_size={size_mb:.1f}MB")
-    print(f"zip_password={password}")
+    size_mb = pdf_path.stat().st_size / (1024 * 1024)
+    print(f"pdf_path={pdf_path}")
+    print(f"pdf_size={size_mb:.1f}MB")
     print(f"comic_title={title}")
     print(f"chapter_name={chapter_name}")
     if total_chs > 1 and not getattr(args, "chapter", None):
@@ -1021,6 +1046,18 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # 强制将标准输出和标准错误输出流配置为 UTF-8 编码，防止在 Windows 控制台下打印特殊字符/日文字符时引发 UnicodeEncodeError
+    if sys.stdout.encoding.lower() != 'utf-8':
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+    if sys.stderr.encoding.lower() != 'utf-8':
+        try:
+            sys.stderr.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+
     try:
         main()
     except KeyboardInterrupt:

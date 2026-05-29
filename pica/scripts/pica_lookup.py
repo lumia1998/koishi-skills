@@ -601,4 +601,15 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    import sys
+    if sys.stdout.encoding.lower() != 'utf-8':
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
+    if sys.stderr.encoding.lower() != 'utf-8':
+        try:
+            sys.stderr.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
     raise SystemExit(main())

@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import math
@@ -51,9 +52,8 @@ DEFAULT_START_TIMEOUT = 90
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.local.json"
 
-# ZIP: 6-digit pure-numeric password derived from chapter id
-PAGES_PER_10MB = 50          # approx 50 pages ≈ 10 MB; split threshold
-MAX_PAGES_PER_PART = 50      # chapter slice size for ZIP parts
+# PDF password: 6-digit pure-numeric password derived from source/comic/chapter ids.
+PAGES_PER_10MB = 50
 
 # ---------------------------------------------------------------------------
 # Config helpers
@@ -226,7 +226,7 @@ def _ensure_deps(project_dir: str) -> None:
     pip = shutil.which("pip") or shutil.which("pip3")
     req = pd / "requirements.txt"
     if uv:
-        print("[comic] uv sync 安装依赖 ...", flush=True)
+        print("[comic] 使用 uv 创建 .venv 并安装 requirements.txt ...", flush=True)
         _run_checked([uv, "venv"], cwd=pd, label="uv venv")
         _run_checked([uv, "pip", "install", "-r", str(req)], cwd=pd, label="uv pip install")
     elif pip:
@@ -371,6 +371,12 @@ def sanitize(name: str) -> str:
     return s or "comic"
 
 
+def pdf_password_for(source: str, comic_id: str, chapter_id: str) -> str:
+    seed = f"{normalize_source(source)}:{comic_id}:{chapter_id}".encode("utf-8")
+    value = int(hashlib.sha256(seed).hexdigest()[:12], 16) % 1000000
+    return f"{value:06d}"
+
+
 def download_chapter(
     base: str,
     source: str,
@@ -382,25 +388,35 @@ def download_chapter(
     concurrency: int = 4,
 ) -> Path:
     """从 FastAPI 后端下载打包并自适应压缩后的单文件 PDF"""
-    safe_title = sanitize(comic_title)
-    safe_ch = sanitize(chapter_name)
-    pdf_name = f"{safe_title}_{safe_ch}.pdf"
+    password = pdf_password_for(source, comic_id, chapter_id)
+    pdf_name = f"{password}.pdf"
     pdf_path = out_dir / pdf_name
 
     print(f"[comic] 正在从 API 后端下载自适应压缩 PDF: {pdf_name} ...", flush=True)
 
     url = api_url(base, f"/api/download/{source}/{urllib.parse.quote(str(comic_id), safe='')}/{urllib.parse.quote(str(chapter_id), safe='')}", {
         "title": comic_title,
-        "chapter": chapter_name
+        "chapter": chapter_name,
+        "password": password,
+        "concurrency": concurrency,
     })
 
     try:
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=900) as response:
+            content_type = response.headers.get("Content-Type", "").lower()
             pdf_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = pdf_path.with_suffix(".pdf.tmp")
             with open(tmp_path, "wb") as f:
                 shutil.copyfileobj(response, f)
+            if "application/pdf" not in content_type:
+                detail = tmp_path.read_text(encoding="utf-8", errors="replace")[:500]
+                tmp_path.unlink(missing_ok=True)
+                raise RuntimeError(f"后端没有返回 PDF: {detail}")
+            with open(tmp_path, "rb") as f:
+                if f.read(4) != b"%PDF":
+                    tmp_path.unlink(missing_ok=True)
+                    raise RuntimeError("后端返回的文件不是有效 PDF")
             tmp_path.replace(pdf_path)
             return pdf_path
     except urllib.error.HTTPError as e:
@@ -476,13 +492,26 @@ def cmd_doctor(args: argparse.Namespace, local: dict) -> None:
     api_repo = config_value(args, local, "api_repo", "COMIC_API_REPO", DEFAULT_API_REPO)
     running = is_service_running(base)
     pd = Path(project_dir)
+    venv_python = _venv_python(project_dir)
+    runtime_ready = False
+    if venv_python.exists():
+        result = subprocess.run(
+            [str(venv_python), "-c", "import pypdf, curl_cffi, fastapi, uvicorn"],
+            cwd=project_dir if pd.exists() else None,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        runtime_ready = result.returncode == 0
     lines = [
         f"API base:      {base}",
         f"Service:       {'[OK] running' if running else '[!!] not running'}",
         f"Auto deploy:   {'enabled' if auto_deploy_enabled(args, local) else 'disabled'}",
         f"API repo:      {api_repo}",
         f"git:           {'found' if shutil.which('git') else 'not found'}",
+        f"uv:            {'found' if shutil.which('uv') else 'not found'}",
         f"Project dir:   {project_dir} ({'exists' if pd.exists() else 'not found'})",
+        f"Venv:          {'found' if venv_python.exists() else 'not found (auto deploy will create with uv)'}",
+        f"Runtime deps:  {'[OK] pypdf/curl_cffi/fastapi/uvicorn' if runtime_ready else '[!!] missing or not checked'}",
         f"main.py:       {'found' if (pd / 'main.py').exists() else 'not found'}",
     ]
     if running:
@@ -590,6 +619,7 @@ def cmd_download(args: argparse.Namespace, local: dict) -> None:
     size_mb = pdf_path.stat().st_size / (1024 * 1024)
     print(f"pdf_path={pdf_path}")
     print(f"pdf_size={size_mb:.1f}MB")
+    print(f"pdf_password={pdf_password_for(source, comic_id, chapter_id)}")
     print(f"comic_title={title}")
     print(f"chapter_name={chapter_name}")
     if total_chs > 1 and not getattr(args, "chapter", None):
@@ -711,7 +741,7 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--json", dest="json_out", action="store_true")
 
     # download
-    dl = sub.add_parser("download", help="下载章节为加密 ZIP")
+    dl = sub.add_parser("download", help="下载章节为加密 PDF")
     dl.add_argument("source", choices=["jm", "bika", "禁漫", "哔咔"])
     dl.add_argument("comic_id")
     dl.add_argument("--chapter", default=None, help="章节 ID，不填则下载第一话")

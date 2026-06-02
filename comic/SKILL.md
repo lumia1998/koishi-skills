@@ -10,7 +10,7 @@ description: 聚合漫画 skill，同时覆盖禁漫天堂(JM)和哔咔漫画(Bi
 通过本地运行的 **comic-api** (FastAPI 聚合服务，同时接入禁漫天堂和哔咔漫画) 为用户提供：
 
 - 🔍 **聚合搜索**：一次搜索同时匹配禁漫 + 哔咔，返回最佳匹配和完整列表
-- 📥 **章节下载**：下载指定章节为 PDF 文件，多章节时只下第一话并提示总话数
+- 📥 **章节下载**：下载指定章节为加密 PDF 文件，多章节时只下第一话并提示总话数
 - 🏆 **排行榜**：查看日榜/周榜/月榜/总榜
 - 📂 **分类浏览**：按分类（同人/全彩/人妻等）浏览漫画
 - ⚡ **最近更新**：获取最新上架/更新 of 漫画
@@ -62,75 +62,7 @@ description: 聚合漫画 skill，同时覆盖禁漫天堂(JM)和哔咔漫画(Bi
 
 > [!IMPORTANT]
 > 1. **严禁无谓联网**：在处理排行榜、分类浏览、最新更新、随机推荐等请求时，底层的 `comic-api` 本地命令行工具已经自动实现了实时在线拉取的功能，**模型侧严禁调用 Google 等外部浏览器/联网搜索工具**，直接运行对应的 `leaderboard`、`category`、`latest` 或 `random` 本地子命令即可！
-> 2. **分类匹配优先级最高**：用户请求某种题材/类型时，**必须优先检查**是否能匹配官方分类标签（如 `同人`、`全彩`、`耽美`、`少女漫畫`、`cosplay` 等）。若能匹配，必须优先调用 `category` 命令进行分类浏览；只有在官方分类完全不包含时，才退火使用 `search` 普通关键词搜索。
-
-### 1. JM 号直接下载（数字 > 100）
-
-用户说 `jm123456` 或 `禁漫123456`，提取数字 `123456`，直接下载第一话：
-
-```bash
-python scripts/comic_lookup.py download jm 123456
-```
-
-### 2. 明确关键词搜索
-
-```bash
-python scripts/comic_lookup.py search "关键词" --limit 10
-```
-
-返回带序号的列表（禁漫+哔咔混合），让用户选择后再下载：
-
-```
-🏆 最佳匹配 [禁漫|123456]:
-  花火的故事  作者:某某某
-
-找到 8 个结果：
-1. [禁漫|123456] 花火的故事  作者:某某某
-2. [哔咔|abc123] 花火同人志  作者:佚名
-...
-
-回复序号或「禁漫/哔咔|ID」下载。
-```
-
-### 3. 模糊描述 / 需要补充知识的搜索
-
-用户说「高岛老师的 ba 本子」或「找个粉色头发女孩的本子」等模糊/概念性请求时：
-
-1. **对于画师/作品缩写（如“高岛 ba”）**：先用模型知识识别（「高岛老师」= 热门同人作者高岛，「ba」= 碧蓝档案/Blue Archive）。若不确定，联网搜索补充知识，对齐黑话与简写，构造精确的搜索词。
-2. **对于视觉/特征描述（如“粉色头发女孩”）**：因为漫画数据库不支持直接检索视觉属性，模型必须先通过模型知识或联网搜索，转换提取出符合该视觉特征的热门二次元角色名称（例如：崩铁的“花火”、原神的“八重神子”、崩三的“爱莉希雅”或“后藤一里”等），再以角色名作为关键词进行检索。
-3. **构造关键词并调用搜索**：
-   * `python scripts/comic_lookup.py search "高岛 碧蓝档案" --limit 10`
-   * `python scripts/comic_lookup.py search "花火 崩铁" --limit 10`
-4. 返回列表让用户确认。
-
-### 4. 分类/类型请求
-
-用户说「来个全彩同人本子」、「人妻本子」、「单行本」：
-
-```bash
-# 禁漫分类: latest, doujin, single, short, hanman, meishi, cosplay, 3d
-python scripts/comic_lookup.py category --source jm --name doujin
-
-# 哔咔分类: 嗶咔漢化, 同人, 全彩, 少女漫畫, 耽美, 妹子, 治癒, 都市, 冒險
-python scripts/comic_lookup.py category --source bika --name 全彩
-```
-
-常用分类映射：
-- 同人 → jm:`doujin`, bika:`同人`
-- 全彩 → bika:`全彩`
-- 单行本/单本 → jm:`single`
-- 短篇 → jm:`short`
-- 人妻 → 搜索关键词 `人妻`
-- 韩漫 → jm:`hanman`
-- Cosplay/真人 → jm:`cosplay`
-- 3D/CG → jm:`3d`
-- 哔咔汉化 → bika:`嗶咔漢化`
-- 少女漫画 → bika:`少女漫畫`
-- 耽美/腐/BL → ## Output Rules
-
-- 搜索结果发**纯文本列表**，不发图片 URL、Web 链接
-- 下载结果只发 **单文件 PDF**，文件没有任何密码保护
-- 多章节只下第一话，并告知总话数及分类标签（如 `同人`、`全彩`、`耽美`、`少女漫畫`、`cosplay` 等）。若能匹配，必须优先调用 `category` 命令进行分类浏览；只有在官方分类完全不包含时，才退火使用 `search` 普通关键词搜索。
+> 2. **分类匹配优先级最高**：用户请求某种题材/类型时，**必须优先检查**是否能匹配官方分类标签（如 `同人`、`全彩`、`耽美`、`少女漫畫`、`cosplay` 等）。若能匹配，必须优先调用 `category` 命令进行分类浏览；只有在官方分类完全不包含时，才退而使用 `search` 普通关键词搜索。
 
 ### 1. JM 号直接下载（数字 > 100）
 
@@ -232,8 +164,9 @@ python scripts/comic_lookup.py download jm 123456 --chapter <chapter_id>
 
 ```
 ✅ 下载完成！
-pdf_path=/absolute/path/to/xxx.pdf
+pdf_path=/absolute/path/to/123456.pdf
 pdf_size=8.3MB
+pdf_password=123456
 comic_title=漫画标题
 chapter_name=第1话
 total_chapters=12
@@ -241,7 +174,8 @@ tip=这是第一话，共 12 话，如需其他话请告知章节序号
 ```
 
 - 发送 `pdf_path` 对应的 PDF 文件给用户
-- PDF 文件无任何密码保护，可直接打开阅读
+- PDF 文件有密码保护，发送文件时必须告知 `pdf_password`
+- PDF 文件名必须使用密码本身，例如 `123456.pdf`
 - 如果 `total_chapters > 1`，告知用户「这是第一话，共 N 话，需要其他话请告诉我」
 
 ## Multi-Chapter Handling
@@ -257,7 +191,7 @@ tip=这是第一话，共 12 话，如需其他话请告知章节序号
   - 必须将整话漫画打包为一个单一的 PDF 文件，**绝对禁止**进行分卷拆分发送。
   - 首先尝试以较好质量（JPEG quality=85）打包为 PDF。
   - 如果打包后的 PDF 体积超限（例如 90 页文件大小超限为 23MB，而 90 页的限制是 20MB），则程序会自动降低图片质量（例如从 85 到 60, 40, 20）进行 JPEG 重压缩，直到文件大小降至限制以内。
-  - 命名规范：打包为 `标题_第1话.pdf`。
+  - 命名规范：打包为 `<pdf_password>.pdf`，例如 `123456.pdf`。
 
 ## Service Auto-Deploy
 
@@ -265,9 +199,12 @@ tip=这是第一话，共 12 话，如需其他话请告知章节序号
 - **运行中**：直接调用 API
 - **未运行 + 自动部署启用**：
   1. `git clone` comic-api 仓库到 `project_dir`（若不存在）
-  2. 创建 `.venv` 并安装依赖（`uv sync` 或 `pip install -r requirements.txt`）
-  3. 后台启动 `uvicorn main:app --host 127.0.0.1 --port 8699`
-  4. 等待最多 90s 直到服务就绪
+  2. 检测本地运行环境；若 `.venv` 不存在，优先用 `uv venv` 创建环境，并用 `uv pip install -r requirements.txt` 安装依赖（包含 `pypdf` 加密依赖）
+  3. 如果宿主机没有 `uv`，回退为 Python 内置 `venv` + `pip install -r requirements.txt`
+  4. 后台启动 `uvicorn main:app --host 127.0.0.1 --port 8699`
+  5. 等待最多 90s 直到服务就绪
+
+`doctor` 会检查服务、项目目录、`git`、`uv`、`.venv`、以及 `pypdf/curl_cffi/fastapi/uvicorn` 等运行依赖状态。若本地环境缺失且自动部署启用，实际搜索/下载命令会触发上述 uv 部署流程。
 
 ## Available Scripts
 
@@ -288,7 +225,7 @@ python scripts/comic_lookup.py random [--source jm|bika]
 
 | 错误 | 处理 |
 |---|---|
-| 服务未运行 + 自动部署启用 | 自动克隆+安装+启动，最多等 90s |
+| 服务未运行 + 自动部署启用 | 自动克隆，优先用 uv 创建 `.venv` 并安装 requirements，启动服务，最多等 90s |
 | git 未安装 | 提示「需要先安装 git」 |
 | 章节无图片 | 提示「该章节暂无图片，可能已下架」 |
 | 搜索无结果 | 提示「没有找到结果，换个关键词或联网补充背景信息后再搜索」 |
@@ -298,5 +235,5 @@ python scripts/comic_lookup.py random [--source jm|bika]
 ## Output Rules
 
 - 搜索结果发**纯文本列表**，不发图片 URL、Web 链接
-- 下载结果只发 **单文件 PDF**，文件没有任何密码保护
+- 下载结果只发 **单文件加密 PDF**，文件名为 `<pdf_password>.pdf`，并明确告知 `pdf_password`
 - 多章节只下第一话，并告知总话数

@@ -199,6 +199,19 @@ def _run_checked(cmd: list[str], *, cwd: str | Path | None = None, label: str) -
     raise RuntimeError(f"{label} failed" + (f": {detail}" if detail else ""))
 
 
+def _runtime_ready(project_dir: str) -> bool:
+    python = _venv_python(project_dir)
+    if not python.exists():
+        return False
+    result = subprocess.run(
+        [str(python), "-c", "import pypdf, curl_cffi, fastapi, uvicorn"],
+        cwd=project_dir if Path(project_dir).exists() else None,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return result.returncode == 0
+
+
 def _ensure_project(project_dir: str, api_repo: str) -> None:
     pd = Path(project_dir)
     if pd.exists() and (pd / "main.py").exists():
@@ -218,21 +231,26 @@ def _ensure_project(project_dir: str, api_repo: str) -> None:
 def _ensure_deps(project_dir: str) -> None:
     pd = Path(project_dir)
     python = _venv_python(project_dir)
-    if python.exists():
-        # Already installed
+    if _runtime_ready(project_dir):
         return
     # Try uv first
     uv = shutil.which("uv")
     pip = shutil.which("pip") or shutil.which("pip3")
     req = pd / "requirements.txt"
     if uv:
-        print("[comic] 使用 uv 创建 .venv 并安装 requirements.txt ...", flush=True)
-        _run_checked([uv, "venv"], cwd=pd, label="uv venv")
+        if not python.exists():
+            print("[comic] 使用 uv 创建 .venv ...", flush=True)
+            _run_checked([uv, "venv"], cwd=pd, label="uv venv")
+        else:
+            print("[comic] 检测到 .venv 依赖不完整，使用 uv 修复 requirements.txt ...", flush=True)
         _run_checked([uv, "pip", "install", "-r", str(req)], cwd=pd, label="uv pip install")
     elif pip:
         import venv as venv_mod
-        print("[comic] 使用 pip 安装依赖 ...", flush=True)
-        venv_mod.create(str(pd / ".venv"), with_pip=True)
+        if not python.exists():
+            print("[comic] 使用 Python venv 创建 .venv ...", flush=True)
+            venv_mod.create(str(pd / ".venv"), with_pip=True)
+        else:
+            print("[comic] 检测到 .venv 依赖不完整，使用 pip 修复 requirements.txt ...", flush=True)
         _run_checked(
             [str(_venv_python(project_dir)), "-m", "pip", "install", "-r", str(req)],
             cwd=pd,
@@ -240,6 +258,8 @@ def _ensure_deps(project_dir: str) -> None:
         )
     else:
         raise RuntimeError("未找到 uv 或 pip，无法安装 comic-api 依赖")
+    if not _runtime_ready(project_dir):
+        raise RuntimeError("comic-api 依赖安装后仍不可用，请检查 .venv 和 requirements.txt")
 
 
 def start_service(
@@ -493,15 +513,7 @@ def cmd_doctor(args: argparse.Namespace, local: dict) -> None:
     running = is_service_running(base)
     pd = Path(project_dir)
     venv_python = _venv_python(project_dir)
-    runtime_ready = False
-    if venv_python.exists():
-        result = subprocess.run(
-            [str(venv_python), "-c", "import pypdf, curl_cffi, fastapi, uvicorn"],
-            cwd=project_dir if pd.exists() else None,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        runtime_ready = result.returncode == 0
+    runtime_ready = _runtime_ready(project_dir)
     lines = [
         f"API base:      {base}",
         f"Service:       {'[OK] running' if running else '[!!] not running'}",
@@ -511,7 +523,7 @@ def cmd_doctor(args: argparse.Namespace, local: dict) -> None:
         f"uv:            {'found' if shutil.which('uv') else 'not found'}",
         f"Project dir:   {project_dir} ({'exists' if pd.exists() else 'not found'})",
         f"Venv:          {'found' if venv_python.exists() else 'not found (auto deploy will create with uv)'}",
-        f"Runtime deps:  {'[OK] pypdf/curl_cffi/fastapi/uvicorn' if runtime_ready else '[!!] missing or not checked'}",
+        f"Runtime deps:  {'[OK] pypdf/curl_cffi/fastapi/uvicorn' if runtime_ready else '[!!] missing (auto deploy will install/repair requirements)'}",
         f"main.py:       {'found' if (pd / 'main.py').exists() else 'not found'}",
     ]
     if running:

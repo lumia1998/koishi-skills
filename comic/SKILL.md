@@ -199,12 +199,13 @@ tip=这是第一话，共 12 话，如需其他话请告知章节序号
 - **运行中**：直接调用 API
 - **未运行 + 自动部署启用**：
   1. `git clone` comic-api 仓库到 `project_dir`（若不存在）
-  2. 检测本地运行环境；若 `.venv` 不存在，优先用 `uv venv` 创建环境，并用 `uv pip install -r requirements.txt` 安装依赖（包含 `pypdf` 加密依赖）
-  3. 如果宿主机没有 `uv`，回退为 Python 内置 `venv` + `pip install -r requirements.txt`
-  4. 后台启动 `uvicorn main:app --host 127.0.0.1 --port 8699`
-  5. 等待最多 90s 直到服务就绪
+  2. 检测本地运行环境；若 `.venv` 不存在，优先用 `uv venv` 创建环境
+  3. 若 `.venv` 存在但缺少 `pypdf/curl_cffi/fastapi/uvicorn` 等关键依赖，自动用 `uv pip install -r requirements.txt` 修复（包含 `pypdf` 加密依赖）
+  4. 如果宿主机没有 `uv`，回退为 Python 内置 `venv` + `pip install -r requirements.txt`
+  5. 后台启动 `uvicorn main:app --host 127.0.0.1 --port 8699`
+  6. 等待最多 90s 直到服务就绪
 
-`doctor` 会检查服务、项目目录、`git`、`uv`、`.venv`、以及 `pypdf/curl_cffi/fastapi/uvicorn` 等运行依赖状态。若本地环境缺失且自动部署启用，实际搜索/下载命令会触发上述 uv 部署流程。
+`doctor` 会检查服务、项目目录、`git`、`uv`、`.venv`、以及 `pypdf/curl_cffi/fastapi/uvicorn` 等运行依赖状态。若本地环境缺失或依赖不完整且自动部署启用，实际搜索/下载命令会触发上述 uv 部署/修复流程。
 
 ## Available Scripts
 
@@ -225,7 +226,7 @@ python scripts/comic_lookup.py random [--source jm|bika]
 
 | 错误 | 处理 |
 |---|---|
-| 服务未运行 + 自动部署启用 | 自动克隆，优先用 uv 创建 `.venv` 并安装 requirements，启动服务，最多等 90s |
+| 服务未运行 + 自动部署启用 | 自动克隆，优先用 uv 创建/修复 `.venv` 并安装 requirements，启动服务，最多等 90s |
 | git 未安装 | 提示「需要先安装 git」 |
 | 章节无图片 | 提示「该章节暂无图片，可能已下架」 |
 | 搜索无结果 | 提示「没有找到结果，换个关键词或联网补充背景信息后再搜索」 |

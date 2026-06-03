@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Galgame Box — VNDB + TouchGal CLI helper for Koishi/ChatLuna bots.
+Galgame Box — VNDB + TouchGal CLI helper for bot skills.
 
 Provides subcommands:
   vn <keyword>              Search VNDB for visual novels
@@ -31,7 +31,7 @@ TOUCHGAL_BASE = "https://www.touchgal.top/"
 TOUCHGAL_SEARCH = TOUCHGAL_BASE + "api/search/"
 TOUCHGAL_RANDOM = TOUCHGAL_BASE + "api/home/random"
 USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "Mozilla/5.0 (X11; Linux x86_64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/147.0.0.0 Safari/537.36"
 )
@@ -963,7 +963,7 @@ def _add_touchgal_auth_args(parser):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Galgame Box — VNDB + TouchGal CLI for Koishi/ChatLuna bots."
+        description="Galgame Box — VNDB + TouchGal CLI for bot skills."
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

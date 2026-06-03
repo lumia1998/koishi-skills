@@ -1,5 +1,5 @@
 {
-  "api_base": "http://127.0.0.1:8699",
+  "api_base": "http://127.0.0.1:8700",
   "project_dir": "~/services/JMComic-Api",
   "api_repo": "https://github.com/FfmpegZZZ/JMComic-Api",
   "api_ref": "",

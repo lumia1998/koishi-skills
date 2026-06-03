@@ -25,6 +25,48 @@ DEFAULT_API_KEY = "C69BAF41DA5ABD1FFEDC6D2FEA56B"
 DEFAULT_HMAC_KEY = "~d}$Q7$eIni=V)9\\RK/P.RM4;9[7|@/CA}b~OW!3?EV`:<>M7pddUBL5n|0/*Cn"
 USER_AGENT = "okhttp/3.8.1"
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.local.json"
+DOWNLOAD_ROOT = Path("/download")
+DOWNLOAD_MAX_AGE_SECONDS = 24 * 60 * 60
+
+
+def download_root() -> Path:
+    return DOWNLOAD_ROOT.expanduser().resolve()
+
+
+def resolve_download_dir(value: Any = "") -> Path:
+    text = str(value or "").strip()
+    root = download_root()
+    if not text:
+        return root
+
+    raw_path = Path(text).expanduser()
+    if raw_path.is_absolute():
+        target = raw_path.resolve()
+    else:
+        target = (root / raw_path).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise PicaError("download output directory must be under /download") from exc
+    return target
+
+
+def cleanup_download_root(max_age_seconds: int = DOWNLOAD_MAX_AGE_SECONDS) -> None:
+    root = download_root()
+    root.mkdir(parents=True, exist_ok=True)
+    cutoff = time.time() - max_age_seconds
+    for path in sorted(root.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        if path.is_file() and stat.st_mtime < cutoff:
+            path.unlink(missing_ok=True)
+        elif path.is_dir():
+            try:
+                path.rmdir()
+            except OSError:
+                pass
 
 
 @dataclass
@@ -557,10 +599,10 @@ def build_parser() -> argparse.ArgumentParser:
     zip_parser = sub.add_parser("zip")
     zip_parser.add_argument("comic_id")
     zip_parser.add_argument("chapter")
-    zip_parser.add_argument("--out", default="downloads")
+    zip_parser.add_argument("--out", default="/download", help="Output directory under /download.")
 
     random_parser = sub.add_parser("random")
-    random_parser.add_argument("--out", default="downloads")
+    random_parser.add_argument("--out", default="/download", help="Output directory under /download.")
     random_parser.add_argument("--limit", type=int, default=10)
 
     return parser
@@ -583,12 +625,14 @@ def main() -> int:
             print(format_chapters(client.chapters(args.comic_id)))
             return 0
         if args.command == "zip":
-            zip_path = build_zip(client, args.comic_id, args.chapter, Path(args.out))
+            cleanup_download_root()
+            zip_path = build_zip(client, args.comic_id, args.chapter, resolve_download_dir(args.out))
             print(f"ZIP 文件已生成：{zip_path}")
             print("解压密码：使用已配置的 PICA_ZIP_PASSWORD")
             return 0
         if args.command == "random":
-            zip_path, selection = build_random_zip(client, Path(args.out), limit=args.limit)
+            cleanup_download_root()
+            zip_path, selection = build_random_zip(client, resolve_download_dir(args.out), limit=args.limit)
             print(f"随机关键词：{selection['keyword']}")
             print(f"随机选择：{selection['title']} / 第 {selection['chapter']} 话")
             print(f"ZIP 文件已生成：{zip_path}")

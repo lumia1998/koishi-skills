@@ -9,7 +9,7 @@ Usage:
     python scripts/comic_lookup.py search "花火" [--source jm|bika|all] [--limit 10]
     python scripts/comic_lookup.py detail jm 123456
     python scripts/comic_lookup.py detail bika <comic_id>
-    python scripts/comic_lookup.py download <source> <comic_id> [--chapter <ch_id>] [--out ./downloads]
+    python scripts/comic_lookup.py download <source> <comic_id> [--chapter <ch_id>] [--out /download]
     python scripts/comic_lookup.py leaderboard [--source jm|bika] [--mode day|week|month|total]
     python scripts/comic_lookup.py category [--source jm|bika] [--name 同人]
     python scripts/comic_lookup.py latest [--source jm|bika]
@@ -44,7 +44,9 @@ from typing import Any
 
 DEFAULT_API_BASE = "http://127.0.0.1:8699"
 DEFAULT_PROJECT_DIR = str(Path(__file__).resolve().parents[3] / "comic-api")
-DEFAULT_OUT_DIR = str(Path(__file__).resolve().parents[1] / "downloads")
+DEFAULT_OUT_DIR = "/download"
+DOWNLOAD_ROOT = Path("/download")
+DOWNLOAD_MAX_AGE_SECONDS = 24 * 60 * 60
 DEFAULT_API_REPO = "https://github.com/lumia1998/comic-api"
 DEFAULT_BIND_HOST = "127.0.0.1"
 DEFAULT_BIND_PORT = 8699
@@ -86,6 +88,46 @@ def config_value(
     if v:
         return v
     return local.get(attr, default)
+
+
+def download_root() -> Path:
+    return DOWNLOAD_ROOT.expanduser().resolve()
+
+
+def resolve_download_dir(value: Any = "") -> Path:
+    text = str(value or "").strip()
+    root = download_root()
+    if not text:
+        return root
+
+    raw_path = Path(text).expanduser()
+    if raw_path.is_absolute():
+        target = raw_path.resolve()
+    else:
+        target = (root / raw_path).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise RuntimeError("download output directory must be under /download") from exc
+    return target
+
+
+def cleanup_download_root(max_age_seconds: int = DOWNLOAD_MAX_AGE_SECONDS) -> None:
+    root = download_root()
+    root.mkdir(parents=True, exist_ok=True)
+    cutoff = time.time() - max_age_seconds
+    for path in sorted(root.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        if path.is_file() and stat.st_mtime < cutoff:
+            path.unlink(missing_ok=True)
+        elif path.is_dir():
+            try:
+                path.rmdir()
+            except OSError:
+                pass
 
 
 def _as_bool(value: Any, *, default: bool = False) -> bool:
@@ -586,7 +628,8 @@ def cmd_download(args: argparse.Namespace, local: dict) -> None:
     source = normalize_source(args.source)
     comic_id = args.comic_id
     chapter_id = getattr(args, "chapter", None)
-    out_dir = Path(config_value(args, local, "out", "COMIC_API_OUT_DIR", DEFAULT_OUT_DIR)).expanduser()
+    out_dir = resolve_download_dir(config_value(args, local, "out", "COMIC_API_OUT_DIR", DEFAULT_OUT_DIR))
+    cleanup_download_root()
 
     # Get comic detail first
     print(f"[comic] 获取漫画详情: {source}/{comic_id} ...", flush=True)
@@ -757,7 +800,7 @@ def build_parser() -> argparse.ArgumentParser:
     dl.add_argument("source", choices=["jm", "bika", "禁漫", "哔咔"])
     dl.add_argument("comic_id")
     dl.add_argument("--chapter", default=None, help="章节 ID，不填则下载第一话")
-    dl.add_argument("--out", default="")
+    dl.add_argument("--out", default="", help="Output directory under /download.")
 
     # leaderboard
     lb = sub.add_parser("leaderboard", help="排行榜")
@@ -815,7 +858,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # 强制将标准输出和标准错误输出流配置为 UTF-8 编码，防止在 Windows 控制台下打印特殊字符/日文字符时引发 UnicodeEncodeError
     if sys.stdout.encoding.lower() != 'utf-8':
         try:
             sys.stdout.reconfigure(encoding='utf-8')

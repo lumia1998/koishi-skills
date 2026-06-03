@@ -22,9 +22,11 @@ bot 读取 SKILL.md（触发条件 + 意图表）
 
 ## 依赖
 
-所有脚本只使用 Python 标准库，**无需 pip install** 任何第三方包（music skill 的 ffmpeg 会在首次运行时自动下载到 `.cache/` 目录）。
+所有脚本只使用 Python 标准库，**无需 pip install** 任何第三方包（Linux 上 music skill 的 ffmpeg 会在首次运行时自动下载到 `.cache/` 目录）。
 
 Python 版本要求：3.10+
+
+下载型 skills 的最终产物统一写入 `/download`。脚本会拒绝 `/download` 之外的输出目录或文件路径，并在每次下载前清理 `/download` 下超过 24 小时的旧文件。
 
 ## Skills
 
@@ -39,7 +41,7 @@ Python 版本要求：3.10+
 ```bash
 python music/scripts/meting_music.py search "alanwalker" --limit 10
 python music/scripts/meting_music.py format-list "alanwalker" --limit 10
-python music/scripts/meting_music.py download <songId> --out ./downloads/song.mp3
+python music/scripts/meting_music.py download <songId> --out /download/song.mp3
 python music/scripts/meting_music.py doctor
 ```
 
@@ -80,8 +82,8 @@ cp pica/config.local.example.json pica/config.local.json
 python pica/scripts/pica_lookup.py doctor
 python pica/scripts/pica_lookup.py search "关键词" --limit 10
 python pica/scripts/pica_lookup.py chapters "comicId"
-python pica/scripts/pica_lookup.py zip "comicId" 1 --out ./downloads
-python pica/scripts/pica_lookup.py random --out ./downloads
+python pica/scripts/pica_lookup.py zip "comicId" 1 --out /download
+python pica/scripts/pica_lookup.py random --out /download
 ```
 
 ---
@@ -104,8 +106,8 @@ cp jmcomic/config.local.example.json jmcomic/config.local.json
 ```bash
 python jmcomic/scripts/jm_lookup.py doctor
 python jmcomic/scripts/jm_lookup.py search "关键词" --limit 10
-python jmcomic/scripts/jm_lookup.py get 12345 --out ./downloads
-python jmcomic/scripts/jm_lookup.py random --out ./downloads
+python jmcomic/scripts/jm_lookup.py get 12345 --out /download
+python jmcomic/scripts/jm_lookup.py random --out /download
 ```
 
 ---

@@ -43,7 +43,7 @@ description: 聚合漫画 skill，同时覆盖禁漫天堂(JM)和哔咔漫画(Bi
 | 绑定地址 | `COMIC_API_BIND_HOST` | `--bind-host` | `127.0.0.1` |
 | 启动超时 | `COMIC_API_START_TIMEOUT` | `--start-timeout` | `90` |
 | 自动部署 | `COMIC_API_AUTO_DEPLOY` | `--no-auto-deploy` | `true` |
-| 输出目录 | `COMIC_API_OUT_DIR` | `--out` | `comic/downloads` |
+| 输出目录 | `COMIC_API_OUT_DIR` | `--out` | `/download` |
 | 并发数 | `COMIC_API_CONCURRENCY` | `--concurrency` | `4` |
 
 示例 `config.local.json`：
@@ -185,6 +185,7 @@ total_chapters=12
 tip=这是第一话，共 12 话，如需其他话请告知章节序号
 ```
 
+- 下载生成的 PDF 必须写入 `/download`。使用 `--out /download` 或省略 `--out`；脚本会拒绝 `/download` 之外的输出目录，并在每次下载前删除 `/download` 下超过 24 小时的旧文件。
 - 发送 `pdf_path` 对应的 PDF 文件给用户
 - PDF 文件有密码保护，发送文件时必须告知 `pdf_password`
 - PDF 文件名必须使用密码本身，例如 `123456.pdf`
@@ -226,7 +227,7 @@ python scripts/comic_lookup.py doctor
 python scripts/comic_lookup.py search "花火" [--source all|jm|bika] [--limit 10]
 python scripts/comic_lookup.py detail jm 123456
 python scripts/comic_lookup.py detail bika <comic_id>
-python scripts/comic_lookup.py download jm 123456 [--chapter <ch_id>] [--out ./downloads]
+python scripts/comic_lookup.py download jm 123456 [--chapter <ch_id>] [--out /download]
 python scripts/comic_lookup.py download bika <comic_id> [--chapter <ch_id>]
 python scripts/comic_lookup.py leaderboard [--source jm|bika] [--mode day|week|month|total] [--page 1]
 python scripts/comic_lookup.py category [--source jm|bika] [--name doujin|同人|全彩...]

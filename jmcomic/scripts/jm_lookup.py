@@ -27,10 +27,12 @@ from typing import Any
 # Config
 # ---------------------------------------------------------------------------
 
-DEFAULT_API_BASE = "http://127.0.0.1:8699"
+DEFAULT_API_BASE = "http://127.0.0.1:8700"
 # Assumes JMComic-Api lives next to koishi-skills under the same parent dir.
 DEFAULT_PROJECT_DIR = str(Path(__file__).resolve().parents[3] / "JMComic-Api")
-DEFAULT_OUT_DIR = str(Path(__file__).resolve().parents[1] / "downloads")
+DEFAULT_OUT_DIR = "/download"
+DOWNLOAD_ROOT = Path("/download")
+DOWNLOAD_MAX_AGE_SECONDS = 24 * 60 * 60
 DEFAULT_API_REPO = "https://github.com/FfmpegZZZ/JMComic-Api"
 DEFAULT_BIND_HOST = "127.0.0.1"
 DEFAULT_START_TIMEOUT = 60
@@ -100,6 +102,46 @@ def clean_album_id(raw: str) -> str:
 
 def expand_path(value: Any) -> str:
     return str(Path(str(value)).expanduser())
+
+
+def download_root() -> Path:
+    return DOWNLOAD_ROOT.expanduser().resolve()
+
+
+def resolve_download_dir(value: Any = "") -> Path:
+    text = str(value or "").strip()
+    root = download_root()
+    if not text:
+        return root
+
+    raw_path = Path(text).expanduser()
+    if raw_path.is_absolute():
+        target = raw_path.resolve()
+    else:
+        target = (root / raw_path).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise RuntimeError("download output directory must be under /download") from exc
+    return target
+
+
+def cleanup_download_root(max_age_seconds: int = DOWNLOAD_MAX_AGE_SECONDS) -> None:
+    root = download_root()
+    root.mkdir(parents=True, exist_ok=True)
+    cutoff = time.time() - max_age_seconds
+    for path in sorted(root.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        if path.is_file() and stat.st_mtime < cutoff:
+            path.unlink(missing_ok=True)
+        elif path.is_dir():
+            try:
+                path.rmdir()
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -190,10 +232,7 @@ def _readiness_status(base: str) -> str:
 
 
 def _venv_python(project_dir: str) -> Path:
-    pd = Path(project_dir)
-    if os.name == "nt":
-        return pd / ".venv" / "Scripts" / "python.exe"
-    return pd / ".venv" / "bin" / "python"
+    return Path(project_dir) / ".venv" / "bin" / "python"
 
 
 def _venv_ready(project_dir: str) -> bool:
@@ -271,7 +310,7 @@ def _ensure_runtime(project_dir: str) -> None:
 
 def _port_from_base(base: str) -> int:
     parsed = urllib.parse.urlparse(base)
-    return parsed.port or 8699
+    return parsed.port or 8700
 
 
 def start_service(
@@ -296,14 +335,6 @@ def start_service(
     log_path = pd / "jmcomic-api.log"
     print(f"[jm] Starting JMComic-Api on {bind_host}:{port} ...", flush=True)
 
-    creationflags = 0
-    popen_kwargs: dict[str, Any] = {}
-    if os.name == "nt":
-        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0)
-    else:
-        popen_kwargs["start_new_session"] = True
-
     with open(log_path, "ab") as log:
         subprocess.Popen(
             [str(python), "-m", "jmcomic_api"],
@@ -311,8 +342,7 @@ def start_service(
             stdout=log,
             stderr=log,
             env=env,
-            creationflags=creationflags,
-            **popen_kwargs,
+            start_new_session=True,
         )
 
     print("[jm] Waiting for service ...", flush=True)
@@ -351,7 +381,7 @@ def ensure_service(base: str, project_dir: str, args: argparse.Namespace, local:
 # ---------------------------------------------------------------------------
 
 def _find_gs() -> str | None:
-    return shutil.which("gs") or shutil.which("gswin64c") or shutil.which("gswin32c")
+    return shutil.which("gs")
 
 
 def compress_pdf(pdf_path: Path, threshold_mb: int = COMPRESS_THRESHOLD_MB) -> Path:
@@ -488,14 +518,16 @@ def _download_and_output(base: str, album_id: str, out_dir: Path) -> None:
 
 def cmd_get(args: argparse.Namespace, local: dict) -> None:
     base, project_dir = _common_config(args, local)
-    out_dir = Path(expand_path(config_value(args, local, "out", "JMAPI_OUT_DIR", DEFAULT_OUT_DIR)))
+    out_dir = resolve_download_dir(config_value(args, local, "out", "JMAPI_OUT_DIR", DEFAULT_OUT_DIR))
+    cleanup_download_root()
     ensure_service(base, project_dir, args, local)
     _download_and_output(base, args.album_id, out_dir)
 
 
 def cmd_random(args: argparse.Namespace, local: dict) -> None:
     base, project_dir = _common_config(args, local)
-    out_dir = Path(expand_path(config_value(args, local, "out", "JMAPI_OUT_DIR", DEFAULT_OUT_DIR)))
+    out_dir = resolve_download_dir(config_value(args, local, "out", "JMAPI_OUT_DIR", DEFAULT_OUT_DIR))
+    cleanup_download_root()
     ensure_service(base, project_dir, args, local)
     kw_str = config_value(args, local, "random_keywords", "JMAPI_RANDOM_KEYWORDS", "")
     keywords = tuple(k.strip() for k in kw_str.split(",") if k.strip()) if kw_str else ()
@@ -530,10 +562,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     g = sub.add_parser("get", help="Download album as encrypted PDF")
     g.add_argument("album_id")
-    g.add_argument("--out", default="")
+    g.add_argument("--out", default="", help="Output directory under /download.")
 
     r = sub.add_parser("random", help="Pick and download a random album")
-    r.add_argument("--out", default="")
+    r.add_argument("--out", default="", help="Output directory under /download.")
     r.add_argument("--keywords", dest="random_keywords", default="")
 
     return p

@@ -69,7 +69,7 @@ Do not use this skill for generic `推荐点本子`、`我要看本子`、`随�
 For explicit Pica casual requests such as “哔咔给我整个本子看”, “pica 随便来个本子”, “哔咔来个本子”, or “pica 我要看本子” without a keyword, do not ask for a keyword. Use the configured random keyword pool and package a random result:
 
 ```bash
-python scripts/pica_lookup.py random --out ./downloads
+python scripts/pica_lookup.py random --out /download
 ```
 
 The helper chooses one keyword from `PICA_RANDOM_KEYWORDS`, searches it, randomly selects one comic from the result list, chooses the first chapter by default, and generates an encrypted ZIP. If `PICA_RANDOM_CHAPTER=random`, it chooses a random chapter instead.
@@ -112,9 +112,11 @@ Show the chapter list and ask which chapter to package. `full` is allowed for fu
 When the user gives a comic ID and chapter:
 
 ```bash
-python scripts/pica_lookup.py zip "comicId" 1 --out ./downloads
-python scripts/pica_lookup.py zip "comicId" full --out ./downloads
+python scripts/pica_lookup.py zip "comicId" 1 --out /download
+python scripts/pica_lookup.py zip "comicId" full --out /download
 ```
+
+The generated ZIP must be written under `/download`. Use `/download` as the output directory; the helper rejects paths outside `/download`. Before each ZIP/random command, the helper deletes files under `/download` that are older than 24 hours.
 
 Send the generated ZIP file to the user. Also tell the user:
 
@@ -133,9 +135,9 @@ python scripts/pica_lookup.py doctor
 python scripts/pica_lookup.py search "关键词" --limit 10
 python scripts/pica_lookup.py search "关键词" --limit 10 --json
 python scripts/pica_lookup.py chapters "comicId"
-python scripts/pica_lookup.py zip "comicId" 1 --out ./downloads
-python scripts/pica_lookup.py zip "comicId" full --out ./downloads
-python scripts/pica_lookup.py random --out ./downloads
+python scripts/pica_lookup.py zip "comicId" 1 --out /download
+python scripts/pica_lookup.py zip "comicId" full --out /download
+python scripts/pica_lookup.py random --out /download
 ```
 
 `doctor` checks whether Pica username, Pica password, and ZIP password are configured. It does not print secret values.

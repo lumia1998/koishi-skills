@@ -92,7 +92,7 @@ For broad requests such as “我要听 alanwalker 的歌”, do this instead:
 2. Run `format-list "alanwalker" --limit 10` and send the returned plain text list to the user.
 3. Save the `search` JSON as the latest per-user/per-channel state so numbers and titles map back to song IDs.
 4. Wait for the user to reply with a number, title, or random intent.
-5. Only after the selection, call `download <songId> --out <file.mp3>` or resolve the chosen `id` and convert it.
+5. Only after the selection, call `download <songId> --out /download/<file.mp3>` or resolve the chosen `id` and convert it.
 
 If the initial user message is broad and does not include “随便/你选/随机/都行”, asking the user to choose is the correct behavior even if the search result has a clear first item.
 
@@ -148,9 +148,11 @@ Download the playable URL to a temp file, then convert with ffmpeg:
 ffmpeg -y -hide_banner -loglevel error -i "input_file" -vn -acodec libmp3lame -b:a 192k "output.mp3"
 ```
 
-The reusable helper first checks `ffmpeg` in `PATH`. If it is missing, it downloads a platform-specific ffmpeg build into `music/.cache/ffmpeg/` and reuses that cached binary for later conversions.
+The reusable helper first checks `ffmpeg` in `PATH`. If it is missing on Linux, it downloads an ffmpeg build into `music/.cache/ffmpeg/` and reuses that cached binary for later conversions.
 
 Use timeouts and file size limits appropriate for the bot platform. Always clean up temporary files after sending or failure.
+
+All final audio files must be written under `/download`. Pass an output path such as `/download/song.mp3`; the helper rejects paths outside `/download`. Before each download/play command, the helper deletes files under `/download` that are older than 24 hours.
 
 ### 6. Send result
 
@@ -172,8 +174,8 @@ python scripts/meting_music.py search "alanwalker" --limit 10
 python scripts/meting_music.py format-list "alanwalker" --limit 10
 python scripts/meting_music.py choose-best "Faded Alan Walker" --limit 10
 python scripts/meting_music.py resolve 36990266
-python scripts/meting_music.py download 36990266 --out song.mp3
-python scripts/meting_music.py play "Faded Alan Walker" --out song.mp3
+python scripts/meting_music.py download 36990266 --out /download/song.mp3
+python scripts/meting_music.py play "Faded Alan Walker" --out /download/song.mp3
 ```
 
 `resolve` only returns the playable direct URL and the Meting API that worked. Use `download` or `play` when the bot needs an actual MP3 file.
@@ -189,7 +191,7 @@ Use `search` together with `format-list` for broad artist/style requests: keep t
 
 Use `play` only when the user gave a specific enough song request, or explicitly asked for random selection. `play` will still return an `ambiguous: true` JSON response instead of writing a file when the search only has a loose top result, multiple same-title songs by different artists, or a requested qualifier is missing. Send only the `prompt` text to the user in that case. If it is not ambiguous, it writes the MP3 file and returns the file path.
 
-For ChatLuna/open-terminal style backends, set the command timeout to at least 120 seconds for `download` or `play`. The first run may need extra time to download ffmpeg, and normal song download + conversion can exceed 30 seconds. If the backend cannot change timeout, tell the user you are processing audio before running the command and tolerate a delayed file publish step instead of treating a 30-second timeout as failure when JSON output and the MP3 path are present.
+For command-runner bot backends, set the command timeout to at least 120 seconds for `download` or `play`. The first Linux run may need extra time to download ffmpeg, and normal song download + conversion can exceed 30 seconds. If the backend cannot change timeout, tell the user you are processing audio before running the command and tolerate a delayed file publish step instead of treating a 30-second timeout as failure when JSON output and the MP3 path are present.
 
 `resolve`, `download`, and `play` use multiple preset Meting APIs as fallback. To override or add priority APIs:
 
@@ -220,4 +222,4 @@ python scripts/meting_music.py resolve 36990266 --api https://api.injahow.cn/met
 - Do not assume the user will only reply with a number; support song name and random choice.
 - Do not send arbitrary remote URLs as final output when the requirement is an MP3/audio file; download and convert first.
 - Do not auto-play the default top search result; if there is no exact/safe match, show the candidate list and wait for selection.
-- Do not treat a 30-second open-terminal timeout as failure if the command output contains valid JSON with a generated MP3 path.
+- Do not treat a 30-second command timeout as failure if the command output contains valid JSON with a generated MP3 path.

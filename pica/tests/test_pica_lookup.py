@@ -155,6 +155,35 @@ def test_load_config_reads_random_keywords_and_chapter_mode(monkeypatch):
     assert config.random_chapter == "random"
 
 
+def test_resolve_download_dir_stays_under_download():
+    pica = load_module()
+    root = pica.download_root()
+
+    assert pica.resolve_download_dir() == root
+    assert pica.resolve_download_dir("/download") == root
+    assert pica.resolve_download_dir("pica") == root / "pica"
+
+    with pytest.raises(pica.PicaError):
+        pica.resolve_download_dir("/tmp")
+    with pytest.raises(pica.PicaError):
+        pica.resolve_download_dir("../escape")
+def test_cleanup_download_root_removes_old_files(tmp_path):
+    pica = load_module()
+    original_root = pica.DOWNLOAD_ROOT
+    pica.DOWNLOAD_ROOT = tmp_path
+    try:
+        root = pica.download_root()
+        marker = root / "pica-old-test.tmp"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text("old", encoding="utf-8")
+        old_time = pica.time.time() - pica.DOWNLOAD_MAX_AGE_SECONDS - 60
+        pica.os.utime(marker, (old_time, old_time))
+
+        pica.cleanup_download_root()
+
+        assert not marker.exists()
+    finally:
+        pica.DOWNLOAD_ROOT = original_root
 def test_create_encrypted_zip_requires_password_and_preserves_page_order(tmp_path):
     pica = load_module()
     first = tmp_path / "0001.jpg"

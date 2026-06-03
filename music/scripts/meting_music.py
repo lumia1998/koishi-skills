@@ -2,16 +2,15 @@
 import argparse
 import json
 import os
-import platform
 import random
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.parse
 import urllib.request
-import zipfile
 from pathlib import Path
 
 SEARCH_URL = "http://music.163.com/api/search/get/web"
@@ -26,15 +25,55 @@ PRESET_METING_APIS = [
     "https://api.amarea.cn/meting/",
 ]
 USER_AGENT = "Mozilla/5.0 music-skill/1.0"
-FFMPEG_DOWNLOADS = {
-    "Windows": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
-    "Linux": "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
-    "Darwin": "https://evermeet.cx/ffmpeg/getrelease/zip",
-}
+LINUX_FFMPEG_DOWNLOAD_URL = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
 PENALTY_WORDS = ["remix", "instrumental", "live", "cover", "伴奏", "dj", "slowed", "piano"]
 RANDOM_WORDS = ["随便", "你选", "随机", "都行", "任选"]
 BROAD_HINTS = ["的歌", "歌手", "来首", "随便"]
 VERSION_PATTERN = re.compile(r"\b\d+(?:\.\d+)+\b")
+DOWNLOAD_ROOT = Path("/download")
+DOWNLOAD_MAX_AGE_SECONDS = 24 * 60 * 60
+
+
+def download_root() -> Path:
+    return DOWNLOAD_ROOT.expanduser().resolve()
+
+
+def resolve_download_path(value: str) -> Path:
+    text = str(value or "").strip()
+    if not text:
+        raise RuntimeError("download output path is required under /download")
+
+    root = download_root()
+    raw_path = Path(text).expanduser()
+    if raw_path.is_absolute():
+        target = raw_path.resolve()
+    else:
+        target = (root / raw_path).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise RuntimeError("download output must be under /download") from exc
+    if target == root:
+        raise RuntimeError("download output file must be under /download")
+    return target
+
+
+def cleanup_download_root(max_age_seconds: int = DOWNLOAD_MAX_AGE_SECONDS) -> None:
+    root = download_root()
+    root.mkdir(parents=True, exist_ok=True)
+    cutoff = time.time() - max_age_seconds
+    for path in sorted(root.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        if path.is_file() and stat.st_mtime < cutoff:
+            path.unlink(missing_ok=True)
+        elif path.is_dir():
+            try:
+                path.rmdir()
+            except OSError:
+                pass
 
 
 def request_text(url: str, timeout: int = 15) -> str:
@@ -230,7 +269,7 @@ def default_ffmpeg_cache_dir() -> Path:
 
 
 def find_cached_ffmpeg(cache_dir: Path):
-    candidates = ["ffmpeg.exe"] if os.name == "nt" else ["ffmpeg"]
+    candidates = ["ffmpeg"]
     for name in candidates:
         for path in cache_dir.rglob(name):
             if path.is_file():
@@ -239,21 +278,16 @@ def find_cached_ffmpeg(cache_dir: Path):
 
 
 def download_ffmpeg_archive(cache_dir: Path) -> Path:
-    system = platform.system()
-    url = FFMPEG_DOWNLOADS.get(system)
-    if not url:
-        raise RuntimeError(f"automatic ffmpeg download is not supported on {system}")
+    if sys.platform != "linux":
+        raise RuntimeError("automatic ffmpeg download is only supported on Linux")
+    url = LINUX_FFMPEG_DOWNLOAD_URL
     archive_path = cache_dir / urllib.parse.urlparse(url).path.rsplit("/", 1)[-1]
     archive_path.write_bytes(request_bytes(url, timeout=120))
     return archive_path
 
 
 def extract_ffmpeg_archive(archive_path: Path, cache_dir: Path):
-    if zipfile.is_zipfile(archive_path):
-        with zipfile.ZipFile(archive_path) as package:
-            package.extractall(cache_dir)
-    else:
-        shutil.unpack_archive(str(archive_path), str(cache_dir))
+    shutil.unpack_archive(str(archive_path), str(cache_dir))
 
 
 def ensure_ffmpeg(cache_dir: Path | None = None) -> Path:
@@ -366,12 +400,12 @@ def main():
 
     download_parser = sub.add_parser("download")
     download_parser.add_argument("song_id", type=int)
-    download_parser.add_argument("--out", required=True)
+    download_parser.add_argument("--out", required=True, help="Output MP3 path under /download.")
     add_api_args(download_parser)
 
     play_parser = sub.add_parser("play")
     play_parser.add_argument("query")
-    play_parser.add_argument("--out", required=True)
+    play_parser.add_argument("--out", required=True, help="Output MP3 path under /download.")
     play_parser.add_argument("--limit", type=int, default=10)
     add_api_args(play_parser)
 
@@ -399,11 +433,13 @@ def main():
         elif args.command == "resolve":
             print_json(resolve(args.song_id, args.api))
         elif args.command == "download":
-            out_path = Path(args.out).expanduser().resolve()
+            out_path = resolve_download_path(args.out)
+            cleanup_download_root()
             out_path.parent.mkdir(parents=True, exist_ok=True)
             print_json(download(args.song_id, out_path, args.api))
         elif args.command == "play":
-            out_path = Path(args.out).expanduser().resolve()
+            out_path = resolve_download_path(args.out)
+            cleanup_download_root()
             out_path.parent.mkdir(parents=True, exist_ok=True)
             print_json(play(args.query, out_path, args.limit, args.api))
         elif args.command == "doctor":

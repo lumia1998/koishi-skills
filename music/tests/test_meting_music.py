@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 import importlib.util
-import io
 import json
 import subprocess
 import sys
-import tempfile
-import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -93,28 +90,38 @@ def test_cli_has_new_commands():
     assert_true("format-list" in help_result.stdout, "CLI should expose human-readable list command")
 
 
-def test_ensure_ffmpeg_downloads_when_path_missing():
-    original_which = module.shutil.which
-    original_request_bytes = module.request_bytes
-    try:
-        archive = io.BytesIO()
-        with zipfile.ZipFile(archive, "w") as package:
-            package.writestr("ffmpeg-test/bin/ffmpeg.exe", b"fake exe")
+def test_resolve_download_path_stays_under_download():
+    root = module.download_root()
 
-        def fake_which(name):
-            return None if name == "ffmpeg" else original_which(name)
+    assert_true(module.resolve_download_path("song.mp3") == root / "song.mp3", "relative filenames should resolve under /download")
+    assert_true(module.resolve_download_path("/download/song.mp3") == root / "song.mp3", "/download paths should be accepted")
 
-        module.shutil.which = fake_which
-        module.request_bytes = lambda url, timeout=60: archive.getvalue()
+    for bad_path in ["", "../song.mp3"]:
+        try:
+            module.resolve_download_path(bad_path)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError(f"{bad_path!r} should be rejected")
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            target = module.ensure_ffmpeg(Path(tmpdir))
-            assert_true(target.name == "ffmpeg.exe", "Windows auto-download should select ffmpeg.exe")
-            assert_true(target.exists(), "auto-download should extract ffmpeg into cache")
-    finally:
-        module.shutil.which = original_which
-        module.request_bytes = original_request_bytes
 
+def test_cleanup_download_root_removes_old_files():
+    with module.tempfile.TemporaryDirectory() as tmpdir:
+        original_root = module.DOWNLOAD_ROOT
+        module.DOWNLOAD_ROOT = Path(tmpdir)
+        try:
+            root = module.download_root()
+            marker = root / "music-old-test.tmp"
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text("old", encoding="utf-8")
+            old_time = module.time.time() - module.DOWNLOAD_MAX_AGE_SECONDS - 60
+            module.os.utime(marker, (old_time, old_time))
+
+            module.cleanup_download_root()
+
+            assert_true(not marker.exists(), "cleanup should remove files older than 24 hours")
+        finally:
+            module.DOWNLOAD_ROOT = original_root
 
 
 def main():
@@ -126,7 +133,8 @@ def main():
         test_choose_best_does_not_autoplay_top_result,
         test_choose_best_asks_when_same_title_has_multiple_artists,
         test_cli_has_new_commands,
-        test_ensure_ffmpeg_downloads_when_path_missing,
+        test_resolve_download_path_stays_under_download,
+        test_cleanup_download_root_removes_old_files,
     ]
     for test in tests:
         test()

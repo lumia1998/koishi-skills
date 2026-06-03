@@ -33,7 +33,7 @@ description: Use this as the default skill for generic 本子 requests and for a
 
 ```json
 {
-  "api_base": "http://127.0.0.1:8699",
+  "api_base": "http://127.0.0.1:8700",
   "project_dir": "~/services/JMComic-Api",
   "api_repo": "https://github.com/FfmpegZZZ/JMComic-Api",
   "auto_deploy": true,
@@ -41,11 +41,11 @@ description: Use this as the default skill for generic 本子 requests and for a
 }
 ```
 
-默认值：`api_base = http://127.0.0.1:8699`，`project_dir` 和 `out` 根据脚本位置自动推导，只有 `random_keywords` 需要按需修改。
+默认值：`api_base = http://127.0.0.1:8700`，`project_dir` 和 `out` 根据脚本位置自动推导，只有 `random_keywords` 需要按需修改。
 
 `JMAPI_REPO` 必须指向新版 FastAPI 项目仓库，仓库内应包含 `src/jmcomic_api/__main__.py`。如果你把改好的 API 发布到自己的 fork，需要把这里改成你的 fork 地址。
 
-如果 Bot 和 API 在同一台宿主机运行，保持 `JMAPI_BASE=http://127.0.0.1:8699` 即可。如果 Bot 运行在容器里，`127.0.0.1` 指容器自身，需要把 `JMAPI_BASE` 配成宿主机或服务名地址。
+如果 Bot 和 API 在同一台宿主机运行，保持 `JMAPI_BASE=http://127.0.0.1:8700` 即可。如果 Bot 运行在容器里，`127.0.0.1` 指容器自身，需要把 `JMAPI_BASE` 配成宿主机或服务名地址。
 
 Ubuntu 宿主机建议先确保这些命令可用：
 
@@ -77,7 +77,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 "推荐点本子"、"推荐本子"、"随便来个本子"、"给我整个本子看"等不含具体关键词时，直接：
 
 ```bash
-python scripts/jm_lookup.py random --out ./downloads
+python scripts/jm_lookup.py random --out /download
 ```
 
 ### 2. 直接给 JM 号
@@ -85,7 +85,7 @@ python scripts/jm_lookup.py random --out ./downloads
 用户给出 JM 号（如 `jm12345`、`jmid12345`、`JM12345`、`禁漫12345`、`12345`）时，直接提取数字并调用：
 
 ```bash
-python scripts/jm_lookup.py get 12345 --out ./downloads
+python scripts/jm_lookup.py get 12345 --out /download
 ```
 
 ### 3. 关键词搜索
@@ -112,7 +112,7 @@ python scripts/jm_lookup.py search "关键词" --limit 10 --json
 ### 4. 用户选定后下载
 
 ```bash
-python scripts/jm_lookup.py get <album_id> --out ./downloads
+python scripts/jm_lookup.py get <album_id> --out /download
 ```
 
 ## 处理下载输出
@@ -126,6 +126,8 @@ album_id=12345
 filename=[12345] title.pdf
 ```
 
+所有下载生成的 PDF 必须写入 `/download`。使用 `--out /download` 或省略 `--out`；脚本会拒绝 `/download` 之外的输出目录，并在每次下载前删除 `/download` 下超过 24 小时的旧文件。
+
 发送 `pdf_path` 的文件给用户，并告知 `pdf_password`（即专辑 ID）作为解压密码。
 
 ## Reusable Helper Script
@@ -134,8 +136,8 @@ filename=[12345] title.pdf
 python scripts/jm_lookup.py doctor
 python scripts/jm_lookup.py search "关键词" --limit 10
 python scripts/jm_lookup.py search "关键词" --limit 10 --json
-python scripts/jm_lookup.py get 12345 --out ./downloads
-python scripts/jm_lookup.py random --out ./downloads
+python scripts/jm_lookup.py get 12345 --out /download
+python scripts/jm_lookup.py random --out /download
 ```
 
 `doctor` 检查服务状态、宿主机自动部署配置、uv、venv、Ghostscript，不打印密码。

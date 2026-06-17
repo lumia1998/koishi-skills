@@ -218,8 +218,6 @@ tip=这是第一话，共 12 话，如需其他话请告知章节序号
   5. 后台启动 `uvicorn main:app --host 127.0.0.1 --port 8699`
   6. 等待最多 90s 直到服务就绪
 
-**Docker 部署（推荐）**：如果宿主机有 Docker，也可在 comic-api 目录执行 `docker compose up -d`，镜像从 `ghcr.io/lumia1998/comic-api:latest` 自动拉取。
-
 `doctor` 会检查服务、项目目录、`git`、`uv`、`.venv`、以及 `pypdf/curl_cffi/fastapi/uvicorn` 等运行依赖状态。若本地环境缺失或依赖不完整且自动部署启用，实际搜索/下载命令会触发上述 uv 部署/修复流程。
 
 ## Available Scripts

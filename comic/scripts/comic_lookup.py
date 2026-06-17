@@ -858,12 +858,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if sys.stdout.encoding.lower() != 'utf-8':
+    if (sys.stdout.encoding or '').lower() != 'utf-8':
         try:
             sys.stdout.reconfigure(encoding='utf-8')
         except Exception:
             pass
-    if sys.stderr.encoding.lower() != 'utf-8':
+    if (sys.stderr.encoding or '').lower() != 'utf-8':
         try:
             sys.stderr.reconfigure(encoding='utf-8')
         except Exception:

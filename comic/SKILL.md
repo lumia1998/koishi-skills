@@ -38,7 +38,7 @@ description: 聚合漫画 skill，同时覆盖禁漫天堂(JM)和哔咔漫画(Bi
 | 设置 | 环境变量 | CLI 参数 | 默认值 |
 |---|---|---|---|
 | API 地址 | `COMIC_API_BASE` | `--api-base` | `http://127.0.0.1:8699` |
-| 项目目录 | `COMIC_API_PROJECT_DIR` | `--project-dir` | 自动计算（koishi-skills 旁同级目录 comic-api，无需手动配置） |
+| 项目目录 | `COMIC_API_PROJECT_DIR` | `--project-dir` | 自动计算（koishi-skills 同级目录下的 comic-api） |
 | API 仓库 | `COMIC_API_REPO` | `--api-repo` | `https://github.com/lumia1998/comic-api` |
 | 绑定地址 | `COMIC_API_BIND_HOST` | `--bind-host` | `127.0.0.1` |
 | 启动超时 | `COMIC_API_START_TIMEOUT` | `--start-timeout` | `90` |
@@ -217,6 +217,8 @@ tip=这是第一话，共 12 话，如需其他话请告知章节序号
   4. 如果宿主机没有 `uv`，回退为 Python 内置 `venv` + `pip install -r requirements.txt`
   5. 后台启动 `uvicorn main:app --host 127.0.0.1 --port 8699`
   6. 等待最多 90s 直到服务就绪
+
+**Docker 部署（推荐）**：如果宿主机有 Docker，也可在 comic-api 目录执行 `docker compose up -d`，镜像从 `ghcr.io/lumia1998/comic-api:latest` 自动拉取。
 
 `doctor` 会检查服务、项目目录、`git`、`uv`、`.venv`、以及 `pypdf/curl_cffi/fastapi/uvicorn` 等运行依赖状态。若本地环境缺失或依赖不完整且自动部署启用，实际搜索/下载命令会触发上述 uv 部署/修复流程。
 
